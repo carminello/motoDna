@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Download } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
@@ -62,6 +62,33 @@ export default function MotoPage({ params }) {
   const regenNfc = async () => {
     const res = await fetch(`/api/motorcycles/${id}/nfc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (res.ok) { toast.success('Nuovo tag NFC generato'); load(); }
+  };
+
+  const downloadPng = async (svgPath, name) => {
+    try {
+      const res = await fetch(svgPath);
+      const svgText = await res.text();
+      const blob = new Blob([svgText], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const size = 1024;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        canvas.toBlob((pngBlob) => {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(pngBlob);
+          link.download = `motodna-logo-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
+          link.click();
+          URL.revokeObjectURL(url);
+        }, 'image/png');
+      };
+      img.src = url;
+      toast.success('Download PNG in corso...');
+    } catch (e) { toast.error('Errore durante il download'); }
   };
 
   const updateMoto = async (patch) => {
@@ -314,6 +341,33 @@ export default function MotoPage({ params }) {
               <div className="mt-6 pt-6 border-t border-white/10">
                 <div className="text-xs mono uppercase text-neutral-500">Scansioni registrate</div>
                 <div className="text-4xl font-bold">{nfc?.scan_count || 0}</div>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <div className="flex items-center gap-2 mb-4"><Logo size={24} /><h3 className="font-semibold">Scarica il logo per il tuo tag NFC</h3></div>
+                <p className="text-sm text-neutral-400 mb-4">Usa questi file per stampare o incidere il logo MotoDNA sopra i tuoi tag NFC.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {[
+                    { name: 'Full color', file: '/motodna-logo.svg', bg: 'bg-black', label: 'A colori (nero + arancio)' },
+                    { name: 'Bianco', file: '/motodna-logo-white.svg', bg: 'bg-neutral-800', label: 'Solo bianco (tag scuri)' },
+                    { name: 'Nero', file: '/motodna-logo-mono.svg', bg: 'bg-white', label: 'Solo nero (tag chiari)' },
+                  ].map(v => (
+                    <div key={v.name} className="metallic rounded-xl p-4 flex flex-col items-center">
+                      <div className={`w-full aspect-square rounded-lg ${v.bg} flex items-center justify-center mb-3 border border-white/10`}>
+                        <img src={v.file} alt={v.name} className="w-2/3 h-2/3 object-contain" />
+                      </div>
+                      <div className="text-sm font-semibold">{v.name}</div>
+                      <div className="text-[10px] text-neutral-500 mb-3 text-center">{v.label}</div>
+                      <div className="flex gap-2 w-full">
+                        <a href={v.file} download className="flex-1"><Button size="sm" variant="outline" className="w-full"><Download className="w-3 h-3 mr-1" />SVG</Button></a>
+                        <button onClick={() => downloadPng(v.file, v.name)} className="flex-1"><Button size="sm" className="w-full bg-orange-600 hover:bg-orange-500" type="button"><Download className="w-3 h-3 mr-1" />PNG</Button></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] mono text-neutral-500 mt-4">
+                  💡 Formati: SVG scalabile per stampa professionale, PNG 1024×1024 pronto per la sovrapposizione fisica.
+                </div>
               </div>
             </Card>
           </TabsContent>
