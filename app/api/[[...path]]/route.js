@@ -593,6 +593,58 @@ async function handler(request, { params }) {
       return json({ nfc: tag });
     }
 
+    // POST /api/motorcycles/:id/nfc/associate - ultra-simple flow
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'nfc' && p[3] === 'associate' && method === 'POST') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      const body = await request.json().catch(() => ({}));
+      const rawUid = String(body.tag_uid || '').trim();
+      if (!rawUid) return json({ error: 'Tag UID richiesto' }, 400);
+      const tagUid = rawUid.toLowerCase().replace(/[^a-z0-9:]/g, '');
+      if (tagUid.length < 4) return json({ error: 'Tag UID non valido' }, 400);
+
+      // Check duplicate on another bike (any active/replaced tag stored)
+      const existing = await db.collection('nfc_tags').findOne({ tag_uid: tagUid, status: 'ACTIVE', motorcycle_id: { $ne: moto.id } });
+      if (existing) return json({ error: "Questo tag NFC risulta già collegato ad un'altra moto." }, 409);
+
+      const now = new Date();
+      // Deactivate any previous ACTIVE tag on this bike
+      await db.collection('nfc_tags').updateMany(
+        { motorcycle_id: moto.id, status: 'ACTIVE' },
+        { $set: { status: 'REPLACED', replaced_at: now } }
+      );
+      // Create new ACTIVE tag
+      const tag = {
+        id: uuidv4(), motorcycle_id: moto.id,
+        tag_uid: tagUid,
+        public_token: generatePublicToken(),
+        status: 'ACTIVE', activated_at: now, scan_count: 0, created_at: now,
+      };
+      await db.collection('nfc_tags').insertOne(tag);
+      // Convenience fields on motorcycle
+      await db.collection('motorcycles').updateOne(
+        { id: moto.id },
+        { $set: { nfc_tag_id: tagUid, nfc_associated: true, nfc_associated_date: now, updated_at: now } }
+      );
+      delete tag._id;
+      return json({ nfc: tag, motorcycle: { id: moto.id, nfc_tag_id: tagUid, nfc_associated: true, nfc_associated_date: now } });
+    }
+
+    // DELETE /api/motorcycles/:id/nfc/associate - remove association
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'nfc' && p[3] === 'associate' && method === 'DELETE') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      await db.collection('nfc_tags').updateMany(
+        { motorcycle_id: moto.id, status: 'ACTIVE' },
+        { $set: { status: 'DISABLED', disabled_at: new Date() } }
+      );
+      await db.collection('motorcycles').updateOne(
+        { id: moto.id },
+        { $set: { nfc_associated: false, nfc_tag_id: null, updated_at: new Date() } }
+      );
+      return json({ ok: true });
+    }
+
     if (p[0] === 'motorcycles' && p[1] && p[2] && !p[3] && method === 'POST') {
       const motorcycleId = p[1];
       const kind = p[2];

@@ -12,11 +12,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid, Send, X, Clock as ClockIcon } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, WifiOff, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid, Send, X, Clock as ClockIcon } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
 import IconSelect from '@/components/IconSelect';
+import NfcAssociator from '@/components/NfcAssociator';
 import { MAINTENANCE_ICONS, TIMELINE_ICONS, MODIFICATION_ICONS, GALLERY_ICONS, DOCUMENT_ICONS } from '@/lib/categoryIcons';
 
 const MAINT_TYPES = ['ENGINE','OIL','FILTER','BRAKES','TYRES','CHAIN','BATTERY','ELECTRICAL','SUSPENSION','CARBURATION','COOLING','EXHAUST','BODYWORK','OTHER'];
@@ -352,29 +353,65 @@ export default function MotoPage({ params }) {
 
           <TabsContent value="nfc" className="mt-6">
             <Card className="metallic p-6">
-              <div className="flex items-center gap-2 mb-4"><Wifi className="w-5 h-5 text-orange-400" /><h3 className="text-lg font-semibold">Configurazione tag NFC</h3></div>
+              <div className="flex items-center gap-2 mb-4"><Wifi className="w-5 h-5 text-orange-400" /><h3 className="text-lg font-semibold">Tag NFC</h3></div>
+
+              {/* Association status card */}
+              {moto.nfc_associated ? (
+                <div className="p-5 rounded-xl bg-gradient-to-br from-emerald-500/10 to-green-600/5 border-2 border-emerald-500/30 mb-6">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                      <Wifi className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-emerald-400">Tag NFC associato</span>
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">ATTIVO</Badge>
+                      </div>
+                      <div className="text-xs text-neutral-400">Collegato il {moto.nfc_associated_date ? new Date(moto.nfc_associated_date).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</div>
+                      <div className="text-[10px] mono text-neutral-500 mt-2 break-all">UID: {moto.nfc_tag_id || nfc?.tag_uid}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <a href={`/m/${moto.public_id}`} target="_blank" rel="noopener">
+                      <Button variant="outline" className="w-full"><ExternalLink className="w-3 h-3 mr-1" />Testa NFC</Button>
+                    </a>
+                    <Button variant="outline" onClick={async () => {
+                      if (!confirm('Rimuovere l\'associazione del tag NFC?')) return;
+                      const res = await fetch(`/api/motorcycles/${id}/nfc/associate`, { method: 'DELETE' });
+                      if (res.ok) { toast.success('Tag NFC scollegato'); load(); }
+                    }} className="w-full text-red-400 border-red-500/30 hover:bg-red-500/10"><X className="w-3 h-3 mr-1" />Scollega</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-5 rounded-xl bg-gradient-to-br from-orange-500/10 to-red-600/5 border-2 border-orange-500/30 mb-6">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
+                      <WifiOff className="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-orange-400 mb-1">Non associato</div>
+                      <p className="text-xs text-neutral-400">Associa un tag NFC alla tua moto in meno di 30 secondi. Basta un tap.</p>
+                    </div>
+                  </div>
+                  <NfcAssociator motorcycle={moto} onAssociated={() => { toast.success('Tag NFC associato!'); load(); }} />
+                </div>
+              )}
+
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
                   <div className="text-xs mono uppercase text-neutral-500">Public ID MotoDNA</div>
                   <div className="text-2xl font-bold mono text-orange-400 my-2">{moto.public_id}</div>
-                  <div className="text-xs mono uppercase text-neutral-500 mt-4">Tag UID</div>
-                  <div className="mono text-neutral-300">{nfc?.tag_uid || 'nessuno'}</div>
-                  <div className="text-xs mono uppercase text-neutral-500 mt-4">Stato</div>
-                  <Badge className="bg-emerald-500/20 text-emerald-400 mt-1">{nfc?.status || 'INATTIVO'}</Badge>
+                  <div className="text-xs mono uppercase text-neutral-500 mt-4">Scansioni registrate</div>
+                  <div className="text-3xl font-bold">{nfc?.scan_count || 0}</div>
                 </div>
                 <div>
-                  <div className="text-xs mono uppercase text-neutral-500">URL da scrivere sul tag NFC</div>
+                  <div className="text-xs mono uppercase text-neutral-500">URL scritto sul tag NFC</div>
                   <div className="p-3 mt-2 bg-black/60 rounded-lg text-sm mono break-all text-orange-300 border border-orange-500/20">{publicUrl}</div>
                   <div className="flex gap-2 mt-3 flex-wrap">
                     <Button size="sm" onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Copiato'); }}><Copy className="w-3 h-3 mr-1" />Copia URL</Button>
-                    <Button size="sm" variant="outline" onClick={regenNfc}><RefreshCw className="w-3 h-3 mr-1" />Sostituisci tag</Button>
                   </div>
-                  <p className="text-xs text-neutral-500 mt-4">Scrivi questo URL sul tuo tag NFC usando un&apos;app come NFC Tools. Chi lo scansiona vede solo i dati pubblici.</p>
+                  <p className="text-xs text-neutral-500 mt-4">Chi scansiona il tag NFC vede il profilo pubblico curato della moto — senza scaricare app.</p>
                 </div>
-              </div>
-              <div className="mt-6 pt-6 border-t border-white/10">
-                <div className="text-xs mono uppercase text-neutral-500">Scansioni registrate</div>
-                <div className="text-4xl font-bold">{nfc?.scan_count || 0}</div>
               </div>
             </Card>
           </TabsContent>
