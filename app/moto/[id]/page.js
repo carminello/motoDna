@@ -16,6 +16,8 @@ import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus,
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
+import IconSelect from '@/components/IconSelect';
+import { MAINTENANCE_ICONS, TIMELINE_ICONS, MODIFICATION_ICONS, GALLERY_ICONS, DOCUMENT_ICONS } from '@/lib/categoryIcons';
 
 const MAINT_TYPES = ['ENGINE','OIL','FILTER','BRAKES','TYRES','CHAIN','BATTERY','ELECTRICAL','SUSPENSION','CARBURATION','COOLING','EXHAUST','BODYWORK','OTHER'];
 const EVENT_TYPES = ['PURCHASE','RESTORATION','MAINTENANCE','MODIFICATION','ACCIDENT','TRIP','RACE','MEETUP','MILESTONE','OTHER'];
@@ -170,7 +172,7 @@ export default function MotoPage({ params }) {
             <SectionHeader title="Interventi di manutenzione">
               <AddDialog title="Nuovo intervento" onSubmit={(v) => post('maintenance', v)} fields={[
                 { name: 'title', label: 'Titolo', required: true },
-                { name: 'service_type', label: 'Categoria', type: 'select', options: MAINT_TYPES },
+                { name: 'service_type', label: 'Categoria', type: 'iconselect', options: MAINTENANCE_ICONS },
                 { name: 'date', label: 'Data', type: 'date' },
                 { name: 'mileage', label: 'Km', type: 'number' },
                 { name: 'cost', label: 'Costo €', type: 'number' },
@@ -195,7 +197,7 @@ export default function MotoPage({ params }) {
             <SectionHeader title="Timeline della moto">
               <AddDialog title="Nuovo evento" onSubmit={(v) => post('timeline', v)} fields={[
                 { name: 'title', label: 'Titolo', required: true },
-                { name: 'event_type', label: 'Tipo', type: 'select', options: EVENT_TYPES },
+                { name: 'event_type', label: 'Tipo', type: 'iconselect', options: TIMELINE_ICONS },
                 { name: 'event_date', label: 'Data', type: 'date' },
                 { name: 'mileage', label: 'Km', type: 'number' },
                 { name: 'description', label: 'Descrizione', type: 'textarea' },
@@ -224,7 +226,7 @@ export default function MotoPage({ params }) {
             <SectionHeader title="Modifiche">
               <AddDialog title="Nuova modifica" onSubmit={(v) => post('modifications', v)} fields={[
                 { name: 'name', label: 'Nome', required: true },
-                { name: 'category', label: 'Categoria', type: 'select', options: MOD_CATS },
+                { name: 'category', label: 'Categoria', type: 'iconselect', options: MODIFICATION_ICONS },
                 { name: 'brand', label: 'Marca' },
                 { name: 'model', label: 'Modello' },
                 { name: 'installation_date', label: 'Data installazione', type: 'date' },
@@ -255,7 +257,7 @@ export default function MotoPage({ params }) {
               <AddDialog title="Aggiungi foto" onSubmit={(v) => post('gallery', v)} fields={[
                 { name: 'file_url', label: 'Immagine', required: true, type: 'upload' },
                 { name: 'caption', label: 'Didascalia' },
-                { name: 'category', label: 'Categoria', type: 'select', options: ['PROFILE','RESTORATION','MAINTENANCE','MODIFICATION','TRIP','MEETUP','BEFORE_AFTER','OTHER'] },
+                { name: 'category', label: 'Categoria', type: 'iconselect', options: GALLERY_ICONS },
               ]} />
             </SectionHeader>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -282,7 +284,7 @@ export default function MotoPage({ params }) {
             <SectionHeader title="Documenti (privati)">
               <AddDialog title="Aggiungi documento" onSubmit={(v) => post('documents', v)} fields={[
                 { name: 'title', label: 'Titolo', required: true },
-                { name: 'document_type', label: 'Tipo', type: 'select', options: DOC_TYPES },
+                { name: 'document_type', label: 'Tipo', type: 'iconselect', options: DOCUMENT_ICONS },
                 { name: 'file_url', label: 'File (PDF o immagine)', type: 'upload', accept: 'image/*,application/pdf' },
                 { name: 'document_date', label: 'Data', type: 'date' },
               ]} />
@@ -560,14 +562,16 @@ function AddDialog({ title, onSubmit, fields }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild><Button size="sm" className="bg-orange-600 hover:bg-orange-500"><Plus className="w-4 h-4 mr-1" />Aggiungi</Button></DialogTrigger>
-      <DialogContent className="bg-neutral-950 border-white/10">
+      <DialogContent className="bg-neutral-950 border-white/10 max-w-lg">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
-        <form onSubmit={submit} className="space-y-3 max-h-[70vh] overflow-y-auto">
+        <form onSubmit={submit} className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
           {fields.map(f => (
             <div key={f.name}>
               <Label>{f.label}{f.required && ' *'}</Label>
               {f.type === 'upload' ? (
                 <ImageUploader accept={f.accept || 'image/*'} label="Carica" currentUrl={values[f.name]} onUploaded={(u) => setValues({ ...values, [f.name]: u.url })} />
+              ) : f.type === 'iconselect' ? (
+                <div className="mt-2"><IconSelect value={values[f.name] || ''} onChange={(v) => setValues({ ...values, [f.name]: v })} options={f.options} columns={5} /></div>
               ) : f.type === 'textarea' ? (
                 <Textarea value={values[f.name] || ''} onChange={e => setValues({ ...values, [f.name]: e.target.value })} rows={3} />
               ) : f.type === 'select' ? (
