@@ -410,7 +410,7 @@ async function handler(request, { params }) {
     }
 
     if (path === '/dashboard' && method === 'GET') {
-      const motos = await db.collection('motorcycles').find({ owner_id: userId }, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray();
+      const motos = await db.collection('motorcycles').find({ owner_id: userId }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(100).toArray();
       const motoIds = motos.map(m => m.id);
       const recentMaint = await db.collection('maintenance').find({ motorcycle_id: { $in: motoIds } }, { projection: { _id: 0 } }).sort({ date: -1 }).limit(5).toArray();
       const reminders = await db.collection('reminders').find({ user_id: userId, status: 'PENDING' }, { projection: { _id: 0 } }).limit(5).toArray();
@@ -418,7 +418,7 @@ async function handler(request, { params }) {
     }
 
     if (path === '/motorcycles' && method === 'GET') {
-      const motos = await db.collection('motorcycles').find({ owner_id: userId }, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray();
+      const motos = await db.collection('motorcycles').find({ owner_id: userId }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(100).toArray();
       return json({ motos });
     }
 
@@ -452,14 +452,14 @@ async function handler(request, { params }) {
     if (p[0] === 'motorcycles' && p[1] && !p[2] && method === 'GET') {
       const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId }, { projection: { _id: 0 } });
       if (!moto) return json({ error: 'Moto non trovata' }, 404);
-      const maintenance = await db.collection('maintenance').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ date: -1 }).toArray();
-      const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ event_date: -1 }).toArray();
-      const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ installation_date: -1 }).toArray();
-      const gallery = await db.collection('gallery').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray();
-      const documents = await db.collection('documents').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ document_date: -1 }).toArray();
-      const reminders = await db.collection('reminders').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).toArray();
+      const maintenance = await db.collection('maintenance').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ date: -1 }).limit(200).toArray();
+      const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ event_date: -1 }).limit(200).toArray();
+      const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ installation_date: -1 }).limit(200).toArray();
+      const gallery = await db.collection('gallery').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(200).toArray();
+      const documents = await db.collection('documents').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ document_date: -1 }).limit(100).toArray();
+      const reminders = await db.collection('reminders').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(100).toArray();
       const nfc = await db.collection('nfc_tags').findOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { projection: { _id: 0 } });
-      const postits = await db.collection('postits').find({ motorcycle_id: moto.id }, { projection: { _id: 0, ip_hint: 0 } }).sort({ created_at: -1 }).toArray();
+      const postits = await db.collection('postits').find({ motorcycle_id: moto.id }, { projection: { _id: 0, ip_hint: 0 } }).sort({ created_at: -1 }).limit(200).toArray();
       return json({ moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits });
     }
 
