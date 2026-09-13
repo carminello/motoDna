@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
@@ -108,15 +108,15 @@ export default function MotoPage({ params }) {
 
       <div className="max-w-6xl mx-auto px-5 pt-6">
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="bg-neutral-900 w-full overflow-x-auto flex justify-start">
-            <TabsTrigger value="overview">Panoramica</TabsTrigger>
-            <TabsTrigger value="maintenance"><Wrench className="w-3 h-3 mr-1" />Manutenzione</TabsTrigger>
-            <TabsTrigger value="timeline"><Clock className="w-3 h-3 mr-1" />Timeline</TabsTrigger>
-            <TabsTrigger value="modifications"><Sparkles className="w-3 h-3 mr-1" />Modifiche</TabsTrigger>
-            <TabsTrigger value="gallery"><Img className="w-3 h-3 mr-1" />Galleria</TabsTrigger>
-            <TabsTrigger value="documents"><FileText className="w-3 h-3 mr-1" />Documenti</TabsTrigger>
-            <TabsTrigger value="bacheca"><MessageSquare className="w-3 h-3 mr-1" />Bacheca {postits.length > 0 && <Badge className="ml-1 bg-orange-500/20 text-orange-400 text-[9px] px-1">{postits.length}</Badge>}</TabsTrigger>
-            <TabsTrigger value="nfc"><Wifi className="w-3 h-3 mr-1" />NFC</TabsTrigger>
+          <TabsList className="grid grid-cols-4 md:grid-cols-8 gap-2 bg-transparent h-auto p-0 w-full mb-2">
+            <TabBadge value="overview" icon={LayoutGrid} label="Panoramica" />
+            <TabBadge value="maintenance" icon={Wrench} label="Manutenz." />
+            <TabBadge value="timeline" icon={Clock} label="Timeline" />
+            <TabBadge value="modifications" icon={Sparkles} label="Modifiche" />
+            <TabBadge value="gallery" icon={Img} label="Galleria" />
+            <TabBadge value="documents" icon={FileText} label="Documenti" />
+            <TabBadge value="bacheca" icon={MessageSquare} label="Bacheca" badge={postits.length} />
+            <TabBadge value="nfc" icon={Wifi} label="NFC" />
           </TabsList>
 
           <TabsContent value="overview" className="mt-6 grid md:grid-cols-2 gap-4">
@@ -376,6 +376,31 @@ export default function MotoPage({ params }) {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function TabBadge({ value, icon: Icon, label, badge }) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="group relative flex flex-col items-center justify-center gap-1.5 h-auto p-3 rounded-xl border-2 border-white/10 bg-neutral-950 hover:border-orange-500/40 hover:bg-neutral-900 data-[state=active]:border-orange-500 data-[state=active]:bg-gradient-to-br data-[state=active]:from-orange-500/25 data-[state=active]:to-red-600/10 data-[state=active]:shadow-[0_0_20px_-4px_rgba(238,100,50,0.5)] transition-all overflow-hidden"
+    >
+      {/* Racing stripe */}
+      <span className="absolute inset-x-0 top-[42%] h-[3px] bg-white/5 group-data-[state=active]:bg-orange-500/60 pointer-events-none" />
+      {/* Motorsport dots */}
+      <span className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+      </span>
+      <Icon className="relative w-6 h-6 text-neutral-300 group-hover:text-white group-data-[state=active]:text-orange-400 transition" strokeWidth={1.6} />
+      <span className="relative text-[10px] font-mono uppercase tracking-wider leading-none text-neutral-500 group-hover:text-neutral-300 group-data-[state=active]:text-orange-400 transition">{label}</span>
+      {badge > 0 && (
+        <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+          {badge}
+        </span>
+      )}
+    </TabsTrigger>
   );
 }
 
