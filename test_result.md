@@ -101,3 +101,205 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  MotoDNA - digital identity SaaS for motorcycles. Users register, create motorcycles with auto-generated
+  MDNA-XX-XXX-XXXXX public IDs, associate NFC tags. Public URL /m/[public_id] shows a premium bike profile.
+  Owner dashboard supports maintenance, timeline, modifications, gallery, documents, reminders. Includes
+  image upload (GridFS), full moto edit (all fields incl. km), delete images/items, per-item privacy toggle,
+  logo downloads (SVG/PNG variants). Backend: Next.js 15 + MongoDB + JWT auth.
+
+backend:
+  - task: "Auth (register, login, logout, me) + demo seed on register"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "JWT cookie-based auth. Register auto-seeds Honda VF400F demo bike."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Register returns 200 with auth cookie set. Demo Honda VF400F bike auto-seeded. Login successful with cookie. GET /api/auth/me returns correct user data."
+
+  - task: "Motorcycles CRUD + generated public_id"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /motorcycles generates MDNA-XX-XXX-XXXXX, creates ACTIVE NFC tag. PUT updates all fields incl. current_mileage."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - GET /motorcycles returns list. POST creates moto with valid MDNA-18-MON-WYTS5 public_id. GET /:id returns full bundle with ACTIVE NFC tag. PUT successfully updates current_mileage from 15000 to 20000 km."
+
+  - task: "Public profile endpoint /api/public/:public_id (no auth) + scan counter"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Returns only is_public content, strips cost/currency, increments scan_count. Applied .limit(50/100) after deployment readiness review."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Public endpoint accessible without auth. Scan counter increments correctly (1->2). Only is_public content returned. Cost/currency stripped from maintenance. Returns 403 when public_profile=false."
+
+  - task: "Sub-resources POST/PATCH/DELETE (maintenance, timeline, modifications, gallery, documents, reminders)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "PATCH endpoint added for per-item is_public toggle and other allowed fields. DELETE removes item scoped to owner."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All 6 sub-resource types (maintenance, timeline, modifications, gallery, documents, reminders) POST successfully. PATCH toggles is_public correctly. DELETE removes item and verified not in list."
+
+  - task: "File upload (GridFS) + file serving GET /api/files/:id"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/uploads accepts multipart/form-data and JSON base64. GET /api/files/:id streams binary with content-type. 10MB max."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - File upload via multipart/form-data returns 201 with file ID. GET /api/files/:id successfully retrieves image/png with 287 bytes. Content-Type header correct."
+
+  - task: "NFC tag regenerate endpoint"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /motorcycles/:id/nfc marks previous ACTIVE tag as REPLACED and creates a new one."
+      - working: false
+        agent: "testing"
+        comment: "❌ FAILED - POST /api/motorcycles/:id/nfc returns 400 'Risorsa sconosciuta'. ROUTE ORDERING BUG: The generic sub-resources handler (line 236) catches the request before the NFC handler (line 260). FIX: Move NFC handler (lines 260-274) BEFORE sub-resources handler (lines 236-258) in route.js."
+      - working: true
+        agent: "main"
+        comment: "Route ordering fix applied - moved NFC handler (lines 236-250) BEFORE generic sub-resources handler (lines 252-274)."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - POST /api/motorcycles/:id/nfc now returns 200 with new ACTIVE NFC tag. Verified: (1) New tag_uid generated and different from old (TAG-HD7FNB4VALEE -> TAG-Y8FQ7P63YWDY), (2) New tag has status=ACTIVE, scan_count=0, public_token present, (3) GET /api/motorcycles/:id returns new ACTIVE tag, (4) Old tag implicitly REPLACED. Smoke tests also passed: POST/PATCH/DELETE maintenance, GET public profile without auth all working."
+
+frontend:
+  - task: "UI pages (landing, dashboard, moto/new, moto/[id], m/[public_id])"
+    implemented: true
+    working: "NA"
+    file: "app/**/page.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "User tests frontend manually."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 3
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Please run end-to-end backend tests for MotoDNA. Backend base URL: use NEXT_PUBLIC_BASE_URL from /app/.env
+      All routes are under /api/*. Deployment agent flagged unbounded queries which were fixed by adding
+      .limit(50) on maintenance/timeline/modifications and .limit(100) on gallery in the public endpoint.
+      Please verify:
+      1) POST /api/auth/register with a NEW email; expect 200, cookie set, demo bike auto-seeded.
+      2) POST /api/auth/login with returned credentials.
+      3) GET /api/auth/me with cookie -> user object.
+      4) GET /api/dashboard -> motos[] length >= 1 (demo), recent_maintenance and reminders present.
+      5) GET /api/motorcycles -> list.
+      6) POST /api/motorcycles create custom bike -> returns moto.public_id matching /^MDNA-/.
+      7) GET /api/motorcycles/:id -> full bundle including nfc (ACTIVE).
+      8) PUT /api/motorcycles/:id update current_mileage=20000 -> confirm updated.
+      9) POST sub-resources for each kind: maintenance, timeline, modifications, gallery (with file_url), documents, reminders.
+      10) PATCH one sub-item toggling is_public=false; confirm change reflected in GET.
+      11) DELETE one sub-item; confirm removal.
+      12) POST /api/motorcycles/:id/nfc -> new ACTIVE tag, previous marked REPLACED.
+      13) POST /api/uploads multipart with a tiny PNG; then GET /api/files/:id returns image/png bytes.
+      14) GET /api/public/:public_id (WITHOUT cookie) -> returns moto with only is_public content, scan_count incremented, cost/currency stripped from public maintenance.
+      15) Turn moto.public_profile=false via PUT and confirm GET /api/public/:public_id returns 403.
+      16) Ensure that non-authenticated calls to protected endpoints return 401.
+  
+  - agent: "testing"
+    message: |
+      Comprehensive backend testing completed. Results:
+      
+      ✅ PASSED (5/6 tasks):
+      1. Auth (register, login, me) + demo seed - All working perfectly
+      2. Motorcycles CRUD + public_id generation - All CRUD operations working, MDNA- format correct
+      3. Public profile endpoint - Scan counter, privacy, 403 handling all working
+      4. Sub-resources POST/PATCH/DELETE - All 6 types working (maintenance, timeline, modifications, gallery, documents, reminders)
+      5. File upload (GridFS) + serving - Upload and retrieval working correctly
+      
+      ❌ FAILED (1/6 tasks):
+      6. NFC tag regenerate - Returns 400 "Risorsa sconosciuta"
+      
+      ROOT CAUSE: Route ordering bug in app/api/[[...path]]/route.js
+      - Generic sub-resources handler (line 236) matches /motorcycles/:id/:kind before NFC handler (line 260)
+      - When "nfc" is not found in collections object, returns "Risorsa sconosciuta"
+      
+      FIX REQUIRED: Move NFC handler block (lines 260-274) to BEFORE sub-resources handler (lines 236-258)
+      
+      Additional verifications passed:
+      - Dashboard returns demo bike + maintenance + reminders
+      - Non-authenticated calls return 401 correctly
+      - Per-item privacy toggle working
+      - Cost/currency stripped from public maintenance
+      - Scan counter increments correctly
+  
+  - agent: "testing"
+    message: |
+      NFC regenerate endpoint fix verification completed - ALL TESTS PASSED ✅
+      
+      Route ordering fix successfully applied and verified:
+      - NFC handler moved to lines 236-250 (BEFORE generic sub-resources handler at 252-274)
+      - POST /api/motorcycles/:id/nfc now returns 200 with new ACTIVE NFC tag
+      
+      Test results:
+      1. ✅ NFC regenerate returns 200 (previously 400 "Risorsa sconosciuta")
+      2. ✅ New tag_uid generated: TAG-HD7FNB4VALEE -> TAG-Y8FQ7P63YWDY
+      3. ✅ New NFC has correct properties: status=ACTIVE, scan_count=0, public_token present
+      4. ✅ GET /api/motorcycles/:id returns new ACTIVE tag
+      5. ✅ Old tag implicitly REPLACED (new tag active with different ID)
+      
+      Smoke tests (other endpoints still working):
+      - ✅ POST maintenance
+      - ✅ PATCH is_public toggle
+      - ✅ DELETE maintenance
+      - ✅ GET /api/public/:public_id without auth
+      
+      All 6 backend tasks now fully working. Backend testing complete.

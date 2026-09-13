@@ -116,10 +116,10 @@ async function handler(request, { params }) {
       if (!moto) return json({ error: 'Moto non trovata' }, 404);
       if (!moto.public_profile) return json({ error: 'Profilo privato' }, 403);
       const owner = await db.collection('users').findOne({ id: moto.owner_id }, { projection: { username: 1, first_name: 1, profile_photo: 1, _id: 0 } });
-      const maintenance = await db.collection('maintenance').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0, currency: 0 } }).sort({ date: -1 }).limit(10).toArray();
-      const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ event_date: -1 }).toArray();
-      const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0 } }).sort({ installation_date: -1 }).toArray();
-      const gallery = await db.collection('gallery').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray();
+      const maintenance = await db.collection('maintenance').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0, currency: 0 } }).sort({ date: -1 }).limit(50).toArray();
+      const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ event_date: -1 }).limit(50).toArray();
+      const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0 } }).sort({ installation_date: -1 }).limit(50).toArray();
+      const gallery = await db.collection('gallery').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(100).toArray();
       const nfc = await db.collection('nfc_tags').findOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { projection: { _id: 0, scan_count: 1 } });
       db.collection('nfc_tags').updateOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { $inc: { scan_count: 1 }, $set: { last_scan_at: new Date() } }).catch(() => {});
       db.collection('nfc_scans').insertOne({ id: uuidv4(), motorcycle_id: moto.id, scanned_at: new Date(), device_type: (request.headers.get('user-agent') || '').slice(0, 200) }).catch(() => {});
@@ -233,6 +233,22 @@ async function handler(request, { params }) {
       return json({ moto });
     }
 
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'nfc' && method === 'POST') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      const body = await request.json().catch(() => ({}));
+      await db.collection('nfc_tags').updateMany({ motorcycle_id: moto.id, status: 'ACTIVE' }, { $set: { status: 'REPLACED' } });
+      const tag = {
+        id: uuidv4(), motorcycle_id: moto.id,
+        tag_uid: body.tag_uid || generateTagUid(),
+        public_token: generatePublicToken(),
+        status: 'ACTIVE', activated_at: new Date(), scan_count: 0, created_at: new Date(),
+      };
+      await db.collection('nfc_tags').insertOne(tag);
+      delete tag._id;
+      return json({ nfc: tag });
+    }
+
     if (p[0] === 'motorcycles' && p[1] && p[2] && !p[3] && method === 'POST') {
       const motorcycleId = p[1];
       const kind = p[2];
@@ -255,22 +271,6 @@ async function handler(request, { params }) {
       await db.collection(kind).insertOne(doc);
       delete doc._id;
       return json({ item: doc });
-    }
-
-    if (p[0] === 'motorcycles' && p[1] && p[2] === 'nfc' && method === 'POST') {
-      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
-      if (!moto) return json({ error: 'Non autorizzato' }, 403);
-      const body = await request.json().catch(() => ({}));
-      await db.collection('nfc_tags').updateMany({ motorcycle_id: moto.id, status: 'ACTIVE' }, { $set: { status: 'REPLACED' } });
-      const tag = {
-        id: uuidv4(), motorcycle_id: moto.id,
-        tag_uid: body.tag_uid || generateTagUid(),
-        public_token: generatePublicToken(),
-        status: 'ACTIVE', activated_at: new Date(), scan_count: 0, created_at: new Date(),
-      };
-      await db.collection('nfc_tags').insertOne(tag);
-      delete tag._id;
-      return json({ nfc: tag });
     }
 
     // PATCH sub-item (edit is_public etc)
