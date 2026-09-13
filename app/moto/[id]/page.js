@@ -144,8 +144,11 @@ export default function MotoPage({ params }) {
                 </div>
               </Card>
               <Card className="metallic p-6">
-                <h3 className="font-semibold mb-3">Descrizione</h3>
-                <p className="text-sm text-neutral-300 whitespace-pre-wrap">{moto.description || 'Nessuna descrizione'}</p>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold">Descrizione</h3>
+                  <EditableDescription current={moto.description} onSave={(v) => updateMoto({ description: v })} />
+                </div>
+                <p className="text-sm text-neutral-300 whitespace-pre-wrap">{moto.description || <span className="text-neutral-500 italic">Nessuna descrizione. Clicca "Modifica" per raccontare la storia della tua moto.</span>}</p>
               </Card>
             </div>
           </TabsContent>
@@ -317,6 +320,31 @@ export default function MotoPage({ params }) {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function EditableDescription({ current, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(current || '');
+  useEffect(() => { setValue(current || ''); }, [current]);
+  const save = async () => { await onSave(value); setOpen(false); };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline"><Edit3 className="w-3 h-3 mr-1" />Modifica</Button>
+      </DialogTrigger>
+      <DialogContent className="bg-neutral-950 border-white/10 max-w-xl">
+        <DialogHeader><DialogTitle>Descrizione della moto</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-neutral-500">Racconta la storia, le caratteristiche uniche o il carattere della tua moto. Verrà mostrata anche nel profilo pubblico se attivo.</p>
+          <Textarea value={value} onChange={(e) => setValue(e.target.value)} rows={8} placeholder="La mia café racer costruita a mano..." />
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Annulla</Button>
+            <Button type="button" className="flex-1 bg-orange-600 hover:bg-orange-500" onClick={save}>Salva</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

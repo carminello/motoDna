@@ -1,37 +1,62 @@
-// Custom MotoDNA logo - hexagonal chip frame with DNA helix forming an M
+// MotoDNA logo - Café Racer style emblem
+// Vintage racing badge with a stripped-down café racer silhouette
 export default function Logo({ size = 40, className = '' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <defs>
-        <linearGradient id="mdnaGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+        <linearGradient id="mdnaOrange" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#F97316" />
           <stop offset="1" stopColor="#DC2626" />
         </linearGradient>
-        <linearGradient id="mdnaGrad2" x1="0" y1="64" x2="64" y2="0" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#FCD34D" />
-          <stop offset="1" stopColor="#F97316" />
-        </linearGradient>
       </defs>
-      {/* hex chip frame */}
-      <path d="M32 3 L56 17 L56 47 L32 61 L8 47 L8 17 Z" fill="#0a0a0a" stroke="url(#mdnaGrad)" strokeWidth="2" />
-      {/* chip pins */}
-      <rect x="2" y="22" width="4" height="3" fill="url(#mdnaGrad)" />
-      <rect x="2" y="31" width="4" height="3" fill="url(#mdnaGrad)" />
-      <rect x="2" y="40" width="4" height="3" fill="url(#mdnaGrad)" />
-      <rect x="58" y="22" width="4" height="3" fill="url(#mdnaGrad)" />
-      <rect x="58" y="31" width="4" height="3" fill="url(#mdnaGrad)" />
-      <rect x="58" y="40" width="4" height="3" fill="url(#mdnaGrad)" />
-      {/* DNA helix forming M */}
-      <path d="M18 44 C 18 30, 24 24, 32 32 C 40 40, 46 34, 46 20" stroke="url(#mdnaGrad2)" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      <path d="M18 20 C 18 34, 24 40, 32 32 C 40 24, 46 30, 46 44" stroke="url(#mdnaGrad)" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      {/* rungs */}
-      <line x1="22" y1="26" x2="22" y2="38" stroke="#F97316" strokeWidth="1.2" opacity="0.7" />
-      <line x1="32" y1="28" x2="32" y2="36" stroke="#FCD34D" strokeWidth="1.2" opacity="0.9" />
-      <line x1="42" y1="26" x2="42" y2="38" stroke="#F97316" strokeWidth="1.2" opacity="0.7" />
-      {/* central pulse dot */}
-      <circle cx="32" cy="32" r="2" fill="#FCD34D">
-        <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
-      </circle>
+
+      {/* Vintage tank badge - rounded shield */}
+      <path
+        d="M32 2 C 46 2, 60 8, 60 22 L 60 42 C 60 56, 46 62, 32 62 C 18 62, 4 56, 4 42 L 4 22 C 4 8, 18 2, 32 2 Z"
+        fill="#0a0a0a"
+        stroke="url(#mdnaOrange)"
+        strokeWidth="2"
+      />
+
+      {/* Inner double stroke - racing badge feel */}
+      <path
+        d="M32 6 C 44 6, 56 11, 56 22 L 56 42 C 56 53, 44 58, 32 58 C 20 58, 8 53, 8 42 L 8 22 C 8 11, 20 6, 32 6 Z"
+        fill="none"
+        stroke="rgba(249,115,22,0.25)"
+        strokeWidth="0.8"
+      />
+
+      {/* Racing stripe diagonal */}
+      <path d="M4 26 L 60 26 L 60 30 L 4 30 Z" fill="url(#mdnaOrange)" opacity="0.15" />
+
+      {/* Café racer silhouette - side view */}
+      <g stroke="#fafafa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        {/* rear wheel */}
+        <circle cx="46" cy="40" r="6" strokeWidth="1.6" />
+        <circle cx="46" cy="40" r="1.5" fill="#fafafa" stroke="none" />
+        {/* front wheel */}
+        <circle cx="18" cy="40" r="6" strokeWidth="1.6" />
+        <circle cx="18" cy="40" r="1.5" fill="#fafafa" stroke="none" />
+        {/* fuel tank - teardrop shape */}
+        <path d="M22 32 C 22 28, 26 26, 32 26 C 36 26, 39 27, 40 30 L 40 32 Z" fill="#fafafa" stroke="#fafafa" strokeWidth="0.8" />
+        {/* seat hump (café racer signature) */}
+        <path d="M40 32 C 44 32, 47 30, 48 28 C 49 27, 50 27, 50 28 L 50 32 Z" fill="url(#mdnaOrange)" stroke="url(#mdnaOrange)" strokeWidth="0.8" />
+        {/* frame */}
+        <path d="M22 32 L 30 38 L 40 38 L 40 32" />
+        <path d="M46 40 L 42 34" />
+        <path d="M22 32 L 18 40" />
+        {/* clip-on handlebars - low bars */}
+        <path d="M18 34 L 15 30" strokeWidth="1.4" />
+        {/* front headlight - round */}
+        <circle cx="14" cy="30" r="2" fill="#fafafa" stroke="none" />
+        {/* exhaust pipe */}
+        <path d="M30 40 L 44 42" strokeWidth="1.4" />
+      </g>
+
+      {/* Bottom motorsport dots */}
+      <circle cx="26" cy="54" r="0.8" fill="url(#mdnaOrange)" />
+      <circle cx="32" cy="54" r="0.8" fill="url(#mdnaOrange)" />
+      <circle cx="38" cy="54" r="0.8" fill="url(#mdnaOrange)" />
     </svg>
   );
 }
