@@ -17,13 +17,18 @@ export default function PublicProfile({ params }) {
   const [postitList, setPostitList] = useState([]);
 
   useEffect(() => {
-    fetch(`/api/public/${public_id}`).then(r => r.json()).then(d => {
-      if (d.error) setError(d.error);
-      else {
-        setData(d);
-        setPostitList(d.postits || []);
-      }
-    }).catch(() => setError('Errore di rete'));
+    fetch(`/api/public/${public_id}`)
+      .then(async r => {
+        try { return await r.json(); } catch (e) { return { error: 'Risposta non valida' }; }
+      })
+      .then(d => {
+        if (d.error) setError(d.error);
+        else {
+          setData(d);
+          setPostitList(d.postits || []);
+        }
+      })
+      .catch(() => setError('Errore di rete'));
   }, [public_id]);
 
   if (error) return (

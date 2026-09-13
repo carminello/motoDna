@@ -51,7 +51,7 @@ export default function Landing() {
               <div className="text-[10px] mono text-neutral-500 uppercase">Digital Identity</div>
             </div>
           </div>
-          <a href="/m/MDNA-DEMO" className="text-xs text-neutral-400 hover:text-white transition">Vedi demo pubblica &rarr;</a>
+          <a href="/dashboard" className="text-xs text-neutral-400 hover:text-white transition">Vai alla dashboard &rarr;</a>
         </div>
       </nav>
 

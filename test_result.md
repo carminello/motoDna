@@ -293,7 +293,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 4
+  test_sequence: 5
 
 test_plan:
   current_focus: []
@@ -507,6 +507,71 @@ agent_communication:
       No critical issues found. All ownership transfer endpoints functioning as expected.
       Backend implementation is solid and ready for production.
 
+  - task: "Bug fix: remove dead /m/MDNA-DEMO link + resilient error handling"
+    implemented: true
+    working: true
+    file: "app/page.js, app/m/[public_id]/page.js, app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          BUG: Landing page had a link "Vedi demo pubblica →" pointing to /m/MDNA-DEMO
+          which is a non-existent placeholder ID. The public profile page then showed
+          "Caricamento..." indefinitely (visually — actually it does set the error state
+          when API returns 404 with JSON, but user reported bad experience).
+
+          FIX:
+          1. Removed the "Vedi demo pubblica" anchor from /app/app/page.js.
+             Replaced with a "Vai alla dashboard →" link.
+          2. Hardened the fetch handler in /app/app/m/[public_id]/page.js so that
+             any non-JSON 404 response is safely converted to { error: 'Risposta non valida' }
+             and the error UI is shown instead of a stuck loader.
+
+          Verify:
+          - GET /api/public/MDNA-DEMO must return HTTP 404 with JSON body { error: "Moto non trovata" }.
+          - GET /api/public/any-non-existent-id must return 404.
+          - GET /api/public/{valid_public_id} must return 200 with full moto data.
+          - Public projection must NOT expose plate, owner_id, is_demo.
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED - All 7 comprehensive test scenarios passed successfully:
+          
+          TEST 1: GET /api/public/MDNA-DEMO (non-existent placeholder)
+          - Returns HTTP 404 with JSON body { error: "Moto non trovata" } ✓
+          
+          TEST 2: GET /api/public/NON-EXISTENT-XYZ123 (random non-existent ID)
+          - Returns HTTP 404 with JSON body { error: "Moto non trovata" } ✓
+          
+          TEST 3: Setup - Register fresh user and retrieve demo bike
+          - User registration successful (testuser_1789288270@motodna.test)
+          - Demo bike auto-seeded with public_id: MDNA-84-VF4-Z9KQ3 ✓
+          
+          TEST 4: GET /api/public/{valid_public_id} without auth
+          - Returns HTTP 200 with all expected fields: moto, owner, maintenance, timeline, modifications, gallery, postits, scan_count ✓
+          
+          TEST 5: CRITICAL PRIVACY CHECK - moto object must NOT contain sensitive fields
+          - Verified 'plate' field NOT exposed ✓
+          - Verified 'owner_id' field NOT exposed ✓
+          - Verified 'is_demo' field NOT exposed ✓
+          - Moto object contains only public fields: id, public_id, brand, model, version, year, engine_cc, engine_type, color, current_mileage, main_photo, description, public_profile, status, created_at, updated_at
+          
+          TEST 6: Update motorcycle with plate, re-fetch public profile
+          - PUT /api/motorcycles/{id} with { plate: "AB123CD" } successful ✓
+          - Re-fetched GET /api/public/{public_id} without auth ✓
+          - Confirmed 'plate' field still NOT exposed in public response ✓
+          
+          TEST 7: Regression - POST /api/public/{public_id}/postit (no auth)
+          - POST with { author_name: "Giovanni", message: "Bellissima moto! Complimenti!" } returns 201 ✓
+          - Postit created successfully with correct data ✓
+          
+          Backend implementation verified. All privacy protections working correctly.
+          No critical issues found.
+
+
   - task: "Community + Direct Messaging (NEW feature)"
     implemented: true
     working: true
@@ -619,4 +684,59 @@ agent_communication:
       
       No critical issues found. All endpoints functioning as expected.
       Backend implementation is solid and production-ready.
+
+  - agent: "main"
+    message: |
+      Verify a small bug fix on the MotoDNA backend. Base URL from /app/.env NEXT_PUBLIC_BASE_URL. Endpoint under /api/*.
+
+      Context: The landing page had a broken link "/m/MDNA-DEMO" (non-existent placeholder). We removed the link. Also hardened the public profile page fetch handler. Backend behavior must be verified.
+
+      Tests to run:
+      1) GET /api/public/MDNA-DEMO (no auth) → expect HTTP 404 with JSON body { error: "Moto non trovata" }.
+      2) GET /api/public/NON-EXISTENT-XYZ123 (no auth) → HTTP 404 with same shape.
+      3) Setup: register a fresh user (which auto-seeds the demo Honda VF400F). Get its public_id from GET /api/dashboard (motos[0].public_id).
+      4) GET /api/public/{valid_public_id} (no auth) → HTTP 200 with all expected fields (moto, owner, maintenance, timeline, modifications, gallery, postits, scan_count).
+      5) IMPORTANT — Privacy check: The response moto object MUST NOT contain any of these fields: plate, owner_id, is_demo. Please explicitly verify their absence.
+      6) Update /api/motorcycles/{motorcycle_id} PUT with body { plate: "AB123CD" }, then re-fetch /api/public/{public_id} and confirm the returned moto object still does NOT contain 'plate' anywhere.
+      7) Regression sanity: POST /api/public/{public_id}/postit (no auth) still works.
+
+      Report on /app/test_result.md as usual.
+  
+  - agent: "testing"
+    message: |
+      Bug fix verification completed - ALL TESTS PASSED ✅
+      
+      Comprehensive testing performed on all 7 scenarios with 100% success rate:
+      
+      ✅ TEST 1: Non-existent placeholder MDNA-DEMO
+      - GET /api/public/MDNA-DEMO returns 404 with JSON { error: "Moto non trovata" }
+      
+      ✅ TEST 2: Random non-existent ID
+      - GET /api/public/NON-EXISTENT-XYZ123 returns 404 with JSON { error: "Moto non trovata" }
+      
+      ✅ TEST 3: User registration and demo bike seeding
+      - Fresh user registered successfully
+      - Demo Honda VF400F auto-seeded with public_id: MDNA-84-VF4-Z9KQ3
+      
+      ✅ TEST 4: Valid public profile fetch
+      - GET /api/public/{valid_public_id} returns 200 with all expected fields
+      - Fields present: moto, owner, maintenance, timeline, modifications, gallery, postits, scan_count
+      
+      ✅ TEST 5: CRITICAL PRIVACY CHECK PASSED
+      - Verified 'plate' field NOT exposed in public moto object
+      - Verified 'owner_id' field NOT exposed in public moto object
+      - Verified 'is_demo' field NOT exposed in public moto object
+      - Only public fields returned: id, public_id, brand, model, version, year, engine_cc, engine_type, color, current_mileage, main_photo, description, public_profile, status, created_at, updated_at
+      
+      ✅ TEST 6: Privacy protection after plate update
+      - Updated motorcycle with plate "AB123CD" via PUT /api/motorcycles/{id}
+      - Re-fetched public profile without auth
+      - Confirmed 'plate' field still NOT exposed in response
+      
+      ✅ TEST 7: Regression test - POST /api/public/{public_id}/postit
+      - POST with author_name and message returns 201
+      - Postit created successfully with correct data
+      
+      Backend privacy protections working correctly. Bug fix verified.
+      No critical issues found. All endpoints functioning as expected.
 
