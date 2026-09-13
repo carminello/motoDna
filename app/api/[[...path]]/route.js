@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ObjectId, GridFSBucket } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
 import { hashPassword, verifyPassword, signToken, getUserFromRequest } from '@/lib/auth';
-import { generatePublicId, generateTagUid, generatePublicToken } from '@/lib/publicId';
+import { generatePublicId, generateTagUid, generatePublicToken, generateTransferCode } from '@/lib/publicId';
 import { seedDemoForUser } from '@/lib/seedDemo';
 
 export const runtime = 'nodejs';
@@ -156,6 +156,90 @@ async function handler(request, { params }) {
     if (!auth) return json({ error: 'Non autorizzato' }, 401);
     const userId = auth.sub;
 
+    // ============== OWNERSHIP TRANSFER ==============
+    // GET /api/transfer/:code -> preview (auth)
+    if (p[0] === 'transfer' && p[1] && !p[2] && method === 'GET') {
+      const t = await db.collection('transfers').findOne({ code: p[1].toUpperCase(), status: 'PENDING' });
+      if (!t) return json({ error: 'Codice non valido o già utilizzato' }, 404);
+      if (t.expires_at < new Date()) return json({ error: 'Codice scaduto' }, 410);
+      const moto = await db.collection('motorcycles').findOne({ id: t.motorcycle_id }, { projection: { _id: 0, owner_id: 0 } });
+      const fromUser = await db.collection('users').findOne({ id: t.from_user_id }, { projection: { username: 1, first_name: 1, _id: 0 } });
+      return json({ transfer: { code: t.code, expires_at: t.expires_at, from: fromUser }, moto });
+    }
+
+    // POST /api/transfer/:code/accept (auth)
+    if (p[0] === 'transfer' && p[1] && p[2] === 'accept' && method === 'POST') {
+      const t = await db.collection('transfers').findOne({ code: p[1].toUpperCase(), status: 'PENDING' });
+      if (!t) return json({ error: 'Codice non valido o già utilizzato' }, 404);
+      if (t.expires_at < new Date()) return json({ error: 'Codice scaduto' }, 410);
+      if (t.from_user_id === userId) return json({ error: 'Non puoi trasferire una moto a te stesso' }, 400);
+      const now = new Date();
+      // Close previous ownership record
+      await db.collection('ownership_history').updateMany(
+        { motorcycle_id: t.motorcycle_id, end_date: null },
+        { $set: { end_date: now, transfer_verified: true } }
+      );
+      // Open new ownership record
+      await db.collection('ownership_history').insertOne({
+        id: uuidv4(), motorcycle_id: t.motorcycle_id, owner_id: userId,
+        start_date: now, end_date: null, transfer_verified: true, created_at: now,
+      });
+      // Update motorcycle owner
+      await db.collection('motorcycles').updateOne({ id: t.motorcycle_id }, { $set: { owner_id: userId, updated_at: now } });
+      // Mark transfer complete
+      await db.collection('transfers').updateOne({ _id: t._id }, { $set: { status: 'COMPLETED', to_user_id: userId, completed_at: now } });
+      const moto = await db.collection('motorcycles').findOne({ id: t.motorcycle_id }, { projection: { _id: 0 } });
+      return json({ moto });
+    }
+
+    // POST /api/motorcycles/:id/transfer -> generate code
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'transfer' && method === 'POST') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      // Cancel previous pending transfers
+      await db.collection('transfers').updateMany(
+        { motorcycle_id: moto.id, status: 'PENDING' },
+        { $set: { status: 'CANCELLED', cancelled_at: new Date() } }
+      );
+      const now = new Date();
+      const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const transfer = {
+        id: uuidv4(),
+        code: generateTransferCode(),
+        motorcycle_id: moto.id,
+        from_user_id: userId,
+        to_user_id: null,
+        status: 'PENDING',
+        created_at: now,
+        expires_at: expires,
+      };
+      await db.collection('transfers').insertOne(transfer);
+      delete transfer._id;
+      return json({ transfer });
+    }
+
+    // GET /api/motorcycles/:id/transfer -> current pending transfer
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'transfer' && method === 'GET') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      const transfer = await db.collection('transfers').findOne(
+        { motorcycle_id: moto.id, status: 'PENDING' },
+        { projection: { _id: 0 } }
+      );
+      return json({ transfer });
+    }
+
+    // DELETE /api/motorcycles/:id/transfer -> cancel pending
+    if (p[0] === 'motorcycles' && p[1] && p[2] === 'transfer' && method === 'DELETE') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      await db.collection('transfers').updateMany(
+        { motorcycle_id: moto.id, status: 'PENDING' },
+        { $set: { status: 'CANCELLED', cancelled_at: new Date() } }
+      );
+      return json({ ok: true });
+    }
+
     // Upload endpoint
     if (path === '/uploads' && method === 'POST') {
       const contentType = request.headers.get('content-type') || '';
@@ -193,6 +277,131 @@ async function handler(request, { params }) {
       });
       const url = `/api/files/${id.toHexString()}`;
       return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length }, 201);
+    }
+
+    // ============== COMMUNITY & MESSAGES ==============
+    // GET /api/community/users - list users (basic info + bike count)
+    if (p[0] === 'community' && p[1] === 'users' && !p[2] && method === 'GET') {
+      const url = new URL(request.url);
+      const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+      const filter = q ? { $or: [
+        { username: { $regex: q, $options: 'i' } },
+        { first_name: { $regex: q, $options: 'i' } },
+        { last_name: { $regex: q, $options: 'i' } },
+      ] } : {};
+      const users = await db.collection('users').find(filter, {
+        projection: { _id: 0, id: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, country: 1, created_at: 1 }
+      }).limit(100).toArray();
+      // Get bike counts for these users
+      const ids = users.map(u => u.id);
+      const bikeAgg = await db.collection('motorcycles').aggregate([
+        { $match: { owner_id: { $in: ids } } },
+        { $group: { _id: '$owner_id', count: { $sum: 1 }, sample_photo: { $first: '$main_photo' }, sample_model: { $first: '$model' } } }
+      ]).toArray();
+      const bikeMap = Object.fromEntries(bikeAgg.map(b => [b._id, b]));
+      const enriched = users.map(u => ({
+        ...u,
+        bike_count: bikeMap[u.id]?.count || 0,
+        sample_photo: bikeMap[u.id]?.sample_photo || null,
+        sample_model: bikeMap[u.id]?.sample_model || null,
+        is_self: u.id === userId,
+      }));
+      // Sort: with bikes first, self last-ish (still show)
+      enriched.sort((a, b) => (b.bike_count - a.bike_count));
+      return json({ users: enriched });
+    }
+
+    // GET /api/community/users/:id - single user with public bikes
+    if (p[0] === 'community' && p[1] === 'users' && p[2] && method === 'GET') {
+      const user = await db.collection('users').findOne({ id: p[2] }, {
+        projection: { _id: 0, id: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, country: 1, created_at: 1 }
+      });
+      if (!user) return json({ error: 'Utente non trovato' }, 404);
+      const bikes = await db.collection('motorcycles').find(
+        { owner_id: p[2], public_profile: true },
+        { projection: { _id: 0, id: 1, public_id: 1, brand: 1, model: 1, year: 1, engine_cc: 1, main_photo: 1, current_mileage: 1 } }
+      ).sort({ created_at: -1 }).limit(50).toArray();
+      return json({ user, bikes });
+    }
+
+    // GET /api/messages - conversation list
+    if (p[0] === 'messages' && !p[1] && method === 'GET') {
+      const convs = await db.collection('messages').aggregate([
+        { $match: { $or: [{ from_user_id: userId }, { to_user_id: userId }] } },
+        { $sort: { created_at: -1 } },
+        { $group: {
+          _id: { $cond: [{ $eq: ['$from_user_id', userId] }, '$to_user_id', '$from_user_id'] },
+          last_message: { $first: '$content' },
+          last_at: { $first: '$created_at' },
+          last_from: { $first: '$from_user_id' },
+          unread: { $sum: { $cond: [{ $and: [{ $eq: ['$to_user_id', userId] }, { $eq: ['$read_at', null] }] }, 1, 0] } },
+        } },
+        { $sort: { last_at: -1 } },
+        { $limit: 100 },
+      ]).toArray();
+      const otherIds = convs.map(c => c._id);
+      const users = await db.collection('users').find({ id: { $in: otherIds } }, {
+        projection: { _id: 0, id: 1, username: 1, first_name: 1, profile_photo: 1 }
+      }).toArray();
+      const uMap = Object.fromEntries(users.map(u => [u.id, u]));
+      const conversations = convs.map(c => ({
+        user: uMap[c._id] || { id: c._id, username: 'utente' },
+        last_message: c.last_message,
+        last_at: c.last_at,
+        last_from_me: c.last_from === userId,
+        unread: c.unread,
+      }));
+      return json({ conversations });
+    }
+
+    // GET /api/messages/:userId - fetch conversation + mark read
+    if (p[0] === 'messages' && p[1] && method === 'GET') {
+      const otherId = p[1];
+      if (otherId === userId) return json({ error: 'Non puoi chattare con te stesso' }, 400);
+      const other = await db.collection('users').findOne({ id: otherId }, {
+        projection: { _id: 0, id: 1, username: 1, first_name: 1, profile_photo: 1 }
+      });
+      if (!other) return json({ error: 'Utente non trovato' }, 404);
+      const messages = await db.collection('messages').find({
+        $or: [
+          { from_user_id: userId, to_user_id: otherId },
+          { from_user_id: otherId, to_user_id: userId },
+        ]
+      }, { projection: { _id: 0 } }).sort({ created_at: 1 }).limit(500).toArray();
+      // Mark received messages as read
+      await db.collection('messages').updateMany(
+        { from_user_id: otherId, to_user_id: userId, read_at: null },
+        { $set: { read_at: new Date() } }
+      );
+      return json({ other, messages });
+    }
+
+    // POST /api/messages/:userId - send message
+    if (p[0] === 'messages' && p[1] && method === 'POST') {
+      const otherId = p[1];
+      if (otherId === userId) return json({ error: 'Non puoi inviare a te stesso' }, 400);
+      const other = await db.collection('users').findOne({ id: otherId });
+      if (!other) return json({ error: 'Utente non trovato' }, 404);
+      const body = await request.json();
+      const content = String(body.content || '').trim().slice(0, 2000);
+      if (!content) return json({ error: 'Messaggio vuoto' }, 400);
+      const msg = {
+        id: uuidv4(),
+        from_user_id: userId,
+        to_user_id: otherId,
+        content,
+        created_at: new Date(),
+        read_at: null,
+      };
+      await db.collection('messages').insertOne(msg);
+      delete msg._id;
+      return json({ message: msg }, 201);
+    }
+
+    // GET /api/messages-unread-count
+    if (path === '/messages-unread-count' && method === 'GET') {
+      const count = await db.collection('messages').countDocuments({ to_user_id: userId, read_at: null });
+      return json({ count });
     }
 
     if (path === '/dashboard' && method === 'GET') {

@@ -14,12 +14,16 @@ export default function PublicProfile({ params }) {
   const { public_id } = use(params);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [postitList, setPostitList] = useState([]);
 
   useEffect(() => {
     fetch(`/api/public/${public_id}`).then(r => r.json()).then(d => {
       if (d.error) setError(d.error);
-      else setData(d);
-    });
+      else {
+        setData(d);
+        setPostitList(d.postits || []);
+      }
+    }).catch(() => setError('Errore di rete'));
   }, [public_id]);
 
   if (error) return (
@@ -38,9 +42,7 @@ export default function PublicProfile({ params }) {
     </div>
   );
 
-  const { moto, owner, maintenance, timeline, modifications, gallery, scan_count, postits = [] } = data;
-  const [postitList, setPostitList] = useState(postits);
-  useEffect(() => { setPostitList(postits); }, [data]);
+  const { moto, owner, maintenance = [], timeline = [], modifications = [], gallery = [], scan_count = 0 } = data;
 
   return (
     <div className="min-h-screen bg-black text-white">

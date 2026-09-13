@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid, Send, X, Clock as ClockIcon } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
@@ -164,6 +164,11 @@ export default function MotoPage({ params }) {
                   <EditableDescription current={moto.description} onSave={(v) => updateMoto({ description: v })} />
                 </div>
                 <p className="text-sm text-neutral-300 whitespace-pre-wrap">{moto.description || <span className="text-neutral-500 italic">Nessuna descrizione. Clicca "Modifica" per raccontare la storia della tua moto.</span>}</p>
+              </Card>
+              <Card className="metallic p-6 border-red-500/20">
+                <h3 className="font-semibold mb-3 flex items-center gap-2"><Send className="w-4 h-4 text-orange-400" />Trasferimento proprietà</h3>
+                <p className="text-sm text-neutral-400 mb-4">Hai venduto la moto? Genera un codice sicuro: il nuovo proprietario lo userà dal proprio account MotoDNA per prendere il controllo della moto senza perdere la storia.</p>
+                <TransferPanel motorcycleId={id} />
               </Card>
             </div>
           </TabsContent>
@@ -374,6 +379,62 @@ export default function MotoPage({ params }) {
             </Card>
           </TabsContent>
         </Tabs>
+      </div>
+    </div>
+  );
+}
+
+function TransferPanel({ motorcycleId }) {
+  const [transfer, setTransfer] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    const res = await fetch(`/api/motorcycles/${motorcycleId}/transfer`);
+    const data = await res.json();
+    setTransfer(data.transfer);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [motorcycleId]);
+
+  const generate = async () => {
+    if (transfer && !confirm('Esiste già un codice attivo. Vuoi sostituirlo con uno nuovo?')) return;
+    const res = await fetch(`/api/motorcycles/${motorcycleId}/transfer`, { method: 'POST' });
+    if (res.ok) { toast.success('Codice generato'); load(); }
+  };
+
+  const cancel = async () => {
+    if (!confirm('Annullare il codice di trasferimento?')) return;
+    const res = await fetch(`/api/motorcycles/${motorcycleId}/transfer`, { method: 'DELETE' });
+    if (res.ok) { toast.success('Codice annullato'); setTransfer(null); }
+  };
+
+  if (loading) return <div className="text-sm text-neutral-500">...</div>;
+
+  if (!transfer) return (
+    <Button onClick={generate} className="w-full bg-red-600/90 hover:bg-red-500 text-white"><Send className="w-3 h-3 mr-1" />Trasferisci la moto</Button>
+  );
+
+  const expires = new Date(transfer.expires_at);
+  const shareUrl = `${window.location.origin}/transfer/${transfer.code}`;
+
+  return (
+    <div className="space-y-3">
+      <div className="p-4 rounded-xl border-2 border-orange-500/40 bg-gradient-to-br from-orange-500/10 to-red-600/5">
+        <div className="text-[10px] mono uppercase text-orange-400 tracking-widest mb-2">Codice di trasferimento</div>
+        <div className="text-3xl font-bold font-mono text-white tracking-widest">{transfer.code}</div>
+        <div className="text-xs text-neutral-500 mt-2 flex items-center gap-1"><ClockIcon className="w-3 h-3" />Scade il {expires.toLocaleDateString('it-IT')} alle {expires.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</div>
+      </div>
+      <div className="text-xs text-neutral-400">Link diretto da inviare al nuovo proprietario:</div>
+      <div className="p-2 bg-black/50 rounded-lg text-xs mono break-all text-orange-300 border border-white/10">{shareUrl}</div>
+      <div className="flex gap-2 flex-wrap">
+        <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(transfer.code); toast.success('Codice copiato'); }}><Copy className="w-3 h-3 mr-1" />Codice</Button>
+        <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copiato'); }}><Copy className="w-3 h-3 mr-1" />Link</Button>
+        <Button size="sm" variant="outline" onClick={generate}><RefreshCw className="w-3 h-3 mr-1" />Rigenera</Button>
+        <Button size="sm" variant="outline" onClick={cancel} className="text-red-400 border-red-500/30 hover:bg-red-500/10"><X className="w-3 h-3 mr-1" />Annulla</Button>
+      </div>
+      <div className="text-[10px] text-neutral-500 leading-relaxed">
+        Il nuovo proprietario deve avere un account MotoDNA. Quando accetta il trasferimento diventa lui l'unico ad avere accesso alla moto: tu perderai il controllo ma la storia della moto (tutta quella pubblica) rimane intatta.
       </div>
     </div>
   );

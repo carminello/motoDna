@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-MotoDNA Backend API Test - Post-it (Guestbook) Feature
-Tests the new public post-it feature with rate limiting and owner moderation
+MotoDNA Backend API Test - Community + Direct Messaging Feature
+Tests the new community directory and 1:1 messaging system
 """
 
 import requests
 import json
 import time
+import uuid
 from datetime import datetime
 
 BASE_URL = "https://dna-garage.preview.emergentagent.com/api"
@@ -14,456 +15,592 @@ BASE_URL = "https://dna-garage.preview.emergentagent.com/api"
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
-def test_postit_feature():
-    """Test post-it (guestbook) feature end-to-end"""
+def test_community_messaging():
+    """Test Community + Direct Messaging feature end-to-end"""
     
     log("=" * 80)
-    log("TEST: Post-it (Guestbook) Feature")
+    log("TEST: Community + Direct Messaging Feature")
     log("=" * 80)
     
-    owner_session = requests.Session()
-    public_session = requests.Session()
+    session_a = requests.Session()
+    session_b = requests.Session()
+    unauth_session = requests.Session()
     
     try:
-        # Step 1: Try to login with existing demo user first, otherwise register
-        log("\n1. Authenticating user...")
-        email = "demo@motodna.app"
-        password = "test123"
-        
-        # Try login first
-        login_data = {"email": email, "password": password}
-        resp = owner_session.post(f"{BASE_URL}/auth/login", json=login_data)
-        
-        if resp.status_code == 200:
-            log(f"✅ Login successful with existing demo user: {resp.status_code}")
-        else:
-            # If login fails, try to register
-            log(f"Login failed ({resp.status_code}), trying to register...")
-            register_data = {
-                "email": email,
-                "password": password,
-                "first_name": "Demo",
-                "last_name": "User"
-            }
-            resp = owner_session.post(f"{BASE_URL}/auth/register", json=register_data)
-            if resp.status_code == 200:
-                log(f"✅ Register successful: {resp.status_code}")
-            else:
-                log(f"❌ Register failed: {resp.status_code} - {resp.text}")
-                return False
-        
-        # Step 2: Get motorcycle from dashboard
-        log("\n2. Getting motorcycle from dashboard...")
-        resp = owner_session.get(f"{BASE_URL}/dashboard")
-        if resp.status_code != 200:
-            log(f"❌ Dashboard failed: {resp.status_code} - {resp.text}")
-            return False
-        
-        data = resp.json()
-        if not data.get('motos') or len(data['motos']) == 0:
-            log("❌ No motorcycles found in dashboard")
-            return False
-        
-        motorcycle_id = data['motos'][0]['id']
-        public_id = data['motos'][0]['public_id']
-        log(f"✅ Found motorcycle: {motorcycle_id}")
-        log(f"   Public ID: {public_id}")
-        log(f"   Brand/Model: {data['motos'][0].get('brand')} {data['motos'][0].get('model')}")
-        
-        # Step 3: Ensure motorcycle is public
-        log("\n3. Ensuring motorcycle has public_profile=true...")
-        resp = owner_session.put(f"{BASE_URL}/motorcycles/{motorcycle_id}", 
-                                 json={"public_profile": True})
-        if resp.status_code != 200:
-            log(f"❌ Failed to set public_profile: {resp.status_code} - {resp.text}")
-            return False
-        log(f"✅ Motorcycle set to public")
-        
-        # TEST 1: POST valid post-it without auth
+        # Setup: Register user A and user B with fresh random emails
         log("\n" + "=" * 80)
-        log("TEST 1: POST /api/public/{public_id}/postit with valid data (no auth)")
+        log("SETUP: Register User A and User B")
         log("=" * 80)
         
-        postit_data = {
-            "author_name": "Marco",
-            "message": "Bellissima moto!"
-        }
+        # Generate unique emails
+        timestamp = int(time.time())
+        email_a = f"anna_{timestamp}@motodna.test"
+        email_b = f"bruno_{timestamp}@motodna.test"
         
-        resp = public_session.post(f"{BASE_URL}/public/{public_id}/postit", json=postit_data)
+        # Register User A
+        log(f"\nRegistering User A: {email_a}")
+        register_a = {
+            "email": email_a,
+            "password": "test123",
+            "first_name": "Anna",
+            "last_name": "Rossi",
+            "username": f"anna_{timestamp}"
+        }
+        resp = session_a.post(f"{BASE_URL}/auth/register", json=register_a)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: User A registration failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        user_a_data = resp.json().get('user', {})
+        user_a_id = user_a_data.get('id')
+        log(f"✅ User A registered: {user_a_id}")
+        log(f"   Username: {user_a_data.get('username')}")
+        
+        # Register User B
+        log(f"\nRegistering User B: {email_b}")
+        register_b = {
+            "email": email_b,
+            "password": "test123",
+            "first_name": "Bruno",
+            "last_name": "Bianchi",
+            "username": f"bruno_{timestamp}"
+        }
+        resp = session_b.post(f"{BASE_URL}/auth/register", json=register_b)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: User B registration failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        user_b_data = resp.json().get('user', {})
+        user_b_id = user_b_data.get('id')
+        log(f"✅ User B registered: {user_b_id}")
+        log(f"   Username: {user_b_data.get('username')}")
+        
+        # TEST 1: As A, GET /api/community/users
+        log("\n" + "=" * 80)
+        log("TEST 1: GET /api/community/users - verify users list")
+        log("=" * 80)
+        
+        resp = session_a.get(f"{BASE_URL}/community/users")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        users_data = resp.json()
+        users = users_data.get('users', [])
+        
+        if not isinstance(users, list):
+            log(f"❌ FAILED: 'users' is not an array")
+            return False
+        
+        # Find user A and B in the list
+        found_a = False
+        found_b = False
+        
+        for user in users:
+            if user.get('id') == user_a_id:
+                found_a = True
+                # Verify bike_count >= 1 (demo bike seeded)
+                if user.get('bike_count', 0) < 1:
+                    log(f"❌ FAILED: User A bike_count < 1: {user.get('bike_count')}")
+                    return False
+                # Verify no sensitive fields
+                if 'email' in user or 'password_hash' in user:
+                    log(f"❌ FAILED: Sensitive fields exposed (email/password_hash)")
+                    return False
+                log(f"   ✅ User A found: bike_count={user.get('bike_count')}, is_self={user.get('is_self')}")
+            
+            if user.get('id') == user_b_id:
+                found_b = True
+                if user.get('bike_count', 0) < 1:
+                    log(f"❌ FAILED: User B bike_count < 1: {user.get('bike_count')}")
+                    return False
+                if 'email' in user or 'password_hash' in user:
+                    log(f"❌ FAILED: Sensitive fields exposed (email/password_hash)")
+                    return False
+                log(f"   ✅ User B found: bike_count={user.get('bike_count')}, is_self={user.get('is_self')}")
+        
+        if not found_a or not found_b:
+            log(f"❌ FAILED: Users not found in list (A={found_a}, B={found_b})")
+            return False
+        
+        log(f"✅ TEST 1 PASSED: Community users list working")
+        log(f"   Total users: {len(users)}")
+        log(f"   No sensitive fields exposed")
+        
+        # TEST 2: As A, search for user B by username substring
+        log("\n" + "=" * 80)
+        log("TEST 2: GET /api/community/users?q=<search> - search for user B")
+        log("=" * 80)
+        
+        # Use 3-char substring of B's username
+        search_term = user_b_data.get('username')[:3]
+        log(f"   Searching for: '{search_term}'")
+        
+        resp = session_a.get(f"{BASE_URL}/community/users?q={search_term}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        search_results = resp.json().get('users', [])
+        found_b_in_search = False
+        
+        for user in search_results:
+            if user.get('id') == user_b_id:
+                found_b_in_search = True
+                break
+        
+        if not found_b_in_search:
+            log(f"❌ FAILED: User B not found in search results")
+            log(f"   Search term: {search_term}")
+            log(f"   Results: {len(search_results)} users")
+            return False
+        
+        log(f"✅ TEST 2 PASSED: Search working, User B found")
+        log(f"   Search results: {len(search_results)} users")
+        
+        # TEST 3: As A, GET /api/community/users/:id for user B
+        log("\n" + "=" * 80)
+        log("TEST 3: GET /api/community/users/{B_id} - user profile with bikes")
+        log("=" * 80)
+        
+        resp = session_a.get(f"{BASE_URL}/community/users/{user_b_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        profile_data = resp.json()
+        user_profile = profile_data.get('user')
+        bikes = profile_data.get('bikes', [])
+        
+        if not user_profile:
+            log(f"❌ FAILED: No 'user' object in response")
+            return False
+        
+        if not isinstance(bikes, list):
+            log(f"❌ FAILED: 'bikes' is not an array")
+            return False
+        
+        # Verify bikes are PUBLIC only (demo bike should be public by default)
+        log(f"✅ TEST 3 PASSED: User profile retrieved")
+        log(f"   User: {user_profile.get('username')}")
+        log(f"   Bikes: {len(bikes)}")
+        
+        # TEST 4: As A, GET /api/messages - should be empty at start
+        log("\n" + "=" * 80)
+        log("TEST 4: GET /api/messages - verify empty conversations at start")
+        log("=" * 80)
+        
+        resp = session_a.get(f"{BASE_URL}/messages")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        messages_data = resp.json()
+        conversations = messages_data.get('conversations', [])
+        
+        if not isinstance(conversations, list):
+            log(f"❌ FAILED: 'conversations' is not an array")
+            return False
+        
+        log(f"✅ TEST 4 PASSED: Conversations list retrieved")
+        log(f"   Conversations: {len(conversations)}")
+        
+        # TEST 5: As A, GET /api/messages-unread-count - should be 0
+        log("\n" + "=" * 80)
+        log("TEST 5: GET /api/messages-unread-count - verify 0 at start")
+        log("=" * 80)
+        
+        resp = session_a.get(f"{BASE_URL}/messages-unread-count")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        unread_data = resp.json()
+        count = unread_data.get('count')
+        
+        if count is None:
+            log(f"❌ FAILED: No 'count' field in response")
+            return False
+        
+        log(f"✅ TEST 5 PASSED: Unread count retrieved")
+        log(f"   Unread count: {count}")
+        
+        # TEST 6: As A, POST /api/messages/{B_id} - send message
+        log("\n" + "=" * 80)
+        log("TEST 6: POST /api/messages/{B_id} - send message 'Ciao Bruno!'")
+        log("=" * 80)
+        
+        message_data = {"content": "Ciao Bruno!"}
+        resp = session_a.post(f"{BASE_URL}/messages/{user_b_id}", json=message_data)
         
         if resp.status_code != 201:
             log(f"❌ FAILED: Expected 201, got {resp.status_code}")
             log(f"   Response: {resp.text}")
             return False
         
-        postit_response = resp.json()
-        postit1 = postit_response.get('postit')
+        message_response = resp.json()
+        message_obj = message_response.get('message')
         
-        if not postit1:
-            log(f"❌ FAILED: No postit object in response")
+        if not message_obj:
+            log(f"❌ FAILED: No 'message' object in response")
             return False
         
-        # Verify postit structure
-        required_fields = ['id', 'author_name', 'message', 'created_at', 'is_hidden']
+        # Verify message structure
+        required_fields = ['id', 'from_user_id', 'to_user_id', 'content', 'created_at', 'read_at']
         for field in required_fields:
-            if field not in postit1:
-                log(f"❌ FAILED: Missing field '{field}' in postit object")
+            if field not in message_obj:
+                log(f"❌ FAILED: Missing field '{field}' in message object")
                 return False
         
-        if postit1['author_name'] != "Marco":
-            log(f"❌ FAILED: author_name mismatch: {postit1['author_name']}")
+        if message_obj['from_user_id'] != user_a_id:
+            log(f"❌ FAILED: from_user_id mismatch")
             return False
         
-        if postit1['message'] != "Bellissima moto!":
-            log(f"❌ FAILED: message mismatch: {postit1['message']}")
+        if message_obj['to_user_id'] != user_b_id:
+            log(f"❌ FAILED: to_user_id mismatch")
             return False
         
-        if postit1['is_hidden'] != False:
-            log(f"❌ FAILED: is_hidden should be False, got {postit1['is_hidden']}")
+        if message_obj['content'] != "Ciao Bruno!":
+            log(f"❌ FAILED: content mismatch")
             return False
         
-        postit1_id = postit1['id']
-        log(f"✅ TEST 1 PASSED: Post-it created successfully")
-        log(f"   ID: {postit1_id}")
-        log(f"   Author: {postit1['author_name']}")
-        log(f"   Message: {postit1['message']}")
-        log(f"   is_hidden: {postit1['is_hidden']}")
+        message1_id = message_obj['id']
+        log(f"✅ TEST 6 PASSED: Message sent successfully")
+        log(f"   Message ID: {message1_id}")
+        log(f"   Content: {message_obj['content']}")
         
-        # TEST 2: POST with empty message
+        # TEST 7: As A, POST /api/messages/{A_id} - send to self (should fail)
         log("\n" + "=" * 80)
-        log("TEST 2: POST /api/public/{public_id}/postit with empty message")
+        log("TEST 7: POST /api/messages/{A_id} - send to self (expect 400)")
         log("=" * 80)
         
-        empty_data = {
-            "author_name": "Test",
-            "message": ""
-        }
-        
-        resp = public_session.post(f"{BASE_URL}/public/{public_id}/postit", json=empty_data)
+        self_message = {"content": "Message to myself"}
+        resp = session_a.post(f"{BASE_URL}/messages/{user_a_id}", json=self_message)
         
         if resp.status_code != 400:
             log(f"❌ FAILED: Expected 400, got {resp.status_code}")
             log(f"   Response: {resp.text}")
             return False
         
-        log(f"✅ TEST 2 PASSED: Empty message correctly rejected with 400")
+        log(f"✅ TEST 7 PASSED: Self-message correctly rejected with 400")
         
-        # TEST 3: Rate limiting - POST 6 times quickly
+        # TEST 8: As A, POST /api/messages/{B_id} with empty content (should fail)
         log("\n" + "=" * 80)
-        log("TEST 3: Rate limiting - POST 6 times quickly (6th should be 429)")
+        log("TEST 8: POST /api/messages/{B_id} with empty content (expect 400)")
         log("=" * 80)
         
-        rate_limit_session = requests.Session()
-        success_count = 0
-        rate_limited = False
+        empty_message = {"content": ""}
+        resp = session_a.post(f"{BASE_URL}/messages/{user_b_id}", json=empty_message)
         
-        for i in range(6):
-            postit_data = {
-                "author_name": f"RateTest{i+1}",
-                "message": f"Rate limit test message {i+1}"
-            }
-            resp = rate_limit_session.post(f"{BASE_URL}/public/{public_id}/postit", json=postit_data)
-            log(f"   Attempt {i+1}: {resp.status_code}")
-            
-            if resp.status_code == 201:
-                success_count += 1
-            elif resp.status_code == 429:
-                rate_limited = True
-                log(f"   ✅ Rate limited on attempt {i+1}")
-                break
-        
-        if not rate_limited:
-            log(f"❌ FAILED: Expected 429 rate limit, but all {success_count} requests succeeded")
-            return False
-        
-        if success_count != 5:
-            log(f"⚠️  WARNING: Expected 5 successful posts before rate limit, got {success_count}")
-        
-        log(f"✅ TEST 3 PASSED: Rate limiting working ({success_count} succeeded, then 429)")
-        
-        # Wait a bit to avoid rate limiting for next tests
-        log("   Waiting 2 seconds to clear rate limit...")
-        time.sleep(2)
-        
-        # TEST 4: GET public endpoint - should include postits[] with non-hidden
-        log("\n" + "=" * 80)
-        log("TEST 4: GET /api/public/{public_id} without auth - verify postits[] array")
-        log("=" * 80)
-        
-        resp = public_session.get(f"{BASE_URL}/public/{public_id}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+        if resp.status_code != 400:
+            log(f"❌ FAILED: Expected 400, got {resp.status_code}")
             log(f"   Response: {resp.text}")
             return False
         
-        public_data = resp.json()
-        postits_public = public_data.get('postits')
+        log(f"✅ TEST 8 PASSED: Empty message correctly rejected with 400")
         
-        if postits_public is None:
-            log(f"❌ FAILED: No 'postits' field in response")
-            return False
-        
-        if not isinstance(postits_public, list):
-            log(f"❌ FAILED: 'postits' is not an array")
-            return False
-        
-        # Find our first post-it
-        found_postit1 = False
-        for p in postits_public:
-            if p.get('id') == postit1_id:
-                found_postit1 = True
-                if p.get('message') != "Bellissima moto!":
-                    log(f"❌ FAILED: Post-it message mismatch")
-                    return False
-                break
-        
-        if not found_postit1:
-            log(f"❌ FAILED: Original post-it not found in public postits[]")
-            return False
-        
-        log(f"✅ TEST 4 PASSED: Public endpoint returns postits[] array")
-        log(f"   Total postits visible: {len(postits_public)}")
-        log(f"   Original post-it found: {found_postit1}")
-        
-        # TEST 5: GET as owner - should include ALL postits (including hidden)
+        # TEST 9: As A, POST to nonexistent user (should fail)
         log("\n" + "=" * 80)
-        log("TEST 5: GET /api/motorcycles/{id} as owner - verify ALL postits")
+        log("TEST 9: POST /api/messages/nonexistent-uuid (expect 404)")
         log("=" * 80)
         
-        resp = owner_session.get(f"{BASE_URL}/motorcycles/{motorcycle_id}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
-            return False
-        
-        owner_data = resp.json()
-        postits_owner = owner_data.get('postits')
-        
-        if postits_owner is None:
-            log(f"❌ FAILED: No 'postits' field in owner response")
-            return False
-        
-        if not isinstance(postits_owner, list):
-            log(f"❌ FAILED: 'postits' is not an array")
-            return False
-        
-        # Find our first post-it
-        found_postit1_owner = False
-        for p in postits_owner:
-            if p.get('id') == postit1_id:
-                found_postit1_owner = True
-                break
-        
-        if not found_postit1_owner:
-            log(f"❌ FAILED: Original post-it not found in owner postits[]")
-            return False
-        
-        log(f"✅ TEST 5 PASSED: Owner endpoint returns postits[] array")
-        log(f"   Total postits (owner view): {len(postits_owner)}")
-        
-        # TEST 6: PATCH to hide a post-it
-        log("\n" + "=" * 80)
-        log("TEST 6: PATCH /api/motorcycles/{id}/postits/{postit_id} to hide")
-        log("=" * 80)
-        
-        resp = owner_session.patch(
-            f"{BASE_URL}/motorcycles/{motorcycle_id}/postits/{postit1_id}",
-            json={"is_hidden": True}
-        )
-        
-        if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
-            return False
-        
-        patch_response = resp.json()
-        updated_item = patch_response.get('item')
-        
-        if not updated_item:
-            log(f"❌ FAILED: No 'item' in response")
-            return False
-        
-        if updated_item.get('is_hidden') != True:
-            log(f"❌ FAILED: is_hidden not updated to True: {updated_item.get('is_hidden')}")
-            return False
-        
-        log(f"✅ TEST 6 PASSED: Post-it hidden successfully")
-        log(f"   is_hidden: {updated_item.get('is_hidden')}")
-        
-        # TEST 7: GET public endpoint again - hidden post-it should NOT appear
-        log("\n" + "=" * 80)
-        log("TEST 7: GET /api/public/{public_id} - verify hidden postit NOT visible")
-        log("=" * 80)
-        
-        resp = public_session.get(f"{BASE_URL}/public/{public_id}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
-            return False
-        
-        public_data = resp.json()
-        postits_public_after = public_data.get('postits', [])
-        
-        # Check that our hidden post-it is NOT in the list
-        found_hidden = False
-        for p in postits_public_after:
-            if p.get('id') == postit1_id:
-                found_hidden = True
-                break
-        
-        if found_hidden:
-            log(f"❌ FAILED: Hidden post-it still visible in public endpoint")
-            return False
-        
-        log(f"✅ TEST 7 PASSED: Hidden post-it correctly excluded from public view")
-        log(f"   Visible postits: {len(postits_public_after)}")
-        
-        # Verify owner can still see it
-        resp = owner_session.get(f"{BASE_URL}/motorcycles/{motorcycle_id}")
-        owner_data = resp.json()
-        postits_owner_after = owner_data.get('postits', [])
-        
-        found_in_owner = False
-        for p in postits_owner_after:
-            if p.get('id') == postit1_id and p.get('is_hidden') == True:
-                found_in_owner = True
-                break
-        
-        if not found_in_owner:
-            log(f"❌ FAILED: Hidden post-it not visible to owner")
-            return False
-        
-        log(f"   ✅ Hidden post-it still visible to owner (as expected)")
-        
-        # TEST 8: DELETE post-it
-        log("\n" + "=" * 80)
-        log("TEST 8: DELETE /api/motorcycles/{id}/postits/{postit_id}")
-        log("=" * 80)
-        
-        resp = owner_session.delete(f"{BASE_URL}/motorcycles/{motorcycle_id}/postits/{postit1_id}")
-        
-        if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
-            return False
-        
-        log(f"✅ DELETE successful: {resp.status_code}")
-        
-        # Verify it's gone
-        resp = owner_session.get(f"{BASE_URL}/motorcycles/{motorcycle_id}")
-        owner_data = resp.json()
-        postits_after_delete = owner_data.get('postits', [])
-        
-        found_after_delete = False
-        for p in postits_after_delete:
-            if p.get('id') == postit1_id:
-                found_after_delete = True
-                break
-        
-        if found_after_delete:
-            log(f"❌ FAILED: Post-it still exists after DELETE")
-            return False
-        
-        log(f"✅ TEST 8 PASSED: Post-it successfully deleted")
-        
-        # TEST 9: Set public_profile=false then try to POST
-        log("\n" + "=" * 80)
-        log("TEST 9: Set public_profile=false, then POST postit -> expect 404")
-        log("=" * 80)
-        
-        resp = owner_session.put(f"{BASE_URL}/motorcycles/{motorcycle_id}", 
-                                 json={"public_profile": False})
-        if resp.status_code != 200:
-            log(f"❌ Failed to set public_profile=false: {resp.status_code}")
-            return False
-        
-        log(f"   Set public_profile=false")
-        
-        # Try to post a post-it
-        private_postit_data = {
-            "author_name": "TestPrivate",
-            "message": "This should fail"
-        }
-        
-        resp = public_session.post(f"{BASE_URL}/public/{public_id}/postit", json=private_postit_data)
+        fake_uuid = "00000000-0000-0000-0000-000000000000"
+        fake_message = {"content": "hi"}
+        resp = session_a.post(f"{BASE_URL}/messages/{fake_uuid}", json=fake_message)
         
         if resp.status_code != 404:
             log(f"❌ FAILED: Expected 404, got {resp.status_code}")
             log(f"   Response: {resp.text}")
             return False
         
-        log(f"✅ TEST 9 PASSED: POST to private bike correctly returns 404")
+        log(f"✅ TEST 9 PASSED: Nonexistent user correctly returns 404")
         
-        # Restore public_profile for regression tests
-        log("   Restoring public_profile=true for regression tests...")
-        resp = owner_session.put(f"{BASE_URL}/motorcycles/{motorcycle_id}", 
-                                 json={"public_profile": True})
-        if resp.status_code != 200:
-            log(f"⚠️  WARNING: Failed to restore public_profile")
-        
-        # TEST 10: Regression - verify other endpoints still work
+        # TEST 10: As A, GET /api/messages/{B_id} - fetch conversation
         log("\n" + "=" * 80)
-        log("TEST 10: Regression - verify other endpoints still work")
+        log("TEST 10: GET /api/messages/{B_id} - fetch conversation")
         log("=" * 80)
         
-        # Test 10a: POST maintenance
-        log("\n   10a. Testing POST maintenance...")
-        maint_data = {
-            "service_type": "OIL_CHANGE",
-            "title": "Post-it regression test",
-            "description": "Verify maintenance still works",
-            "date": datetime.now().isoformat(),
-            "mileage": 30000,
-            "cost": 80.00,
-            "currency": "EUR",
-            "is_public": True
-        }
-        resp = owner_session.post(f"{BASE_URL}/motorcycles/{motorcycle_id}/maintenance", json=maint_data)
+        resp = session_a.get(f"{BASE_URL}/messages/{user_b_id}")
         if resp.status_code != 200:
-            log(f"   ❌ POST maintenance failed: {resp.status_code} - {resp.text}")
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
             return False
         
-        maint_id = resp.json().get('item', {}).get('id')
-        log(f"   ✅ POST maintenance successful: {maint_id}")
+        conv_data = resp.json()
+        other_user = conv_data.get('other')
+        messages = conv_data.get('messages', [])
         
-        # Test 10b: POST NFC regenerate
-        log("\n   10b. Testing POST /api/motorcycles/:id/nfc...")
-        resp = owner_session.post(f"{BASE_URL}/motorcycles/{motorcycle_id}/nfc", json={})
-        if resp.status_code != 200:
-            log(f"   ❌ POST NFC failed: {resp.status_code} - {resp.text}")
+        if not other_user:
+            log(f"❌ FAILED: No 'other' user in response")
             return False
         
-        nfc_data = resp.json().get('nfc', {})
-        log(f"   ✅ POST NFC successful: {nfc_data.get('tag_uid')}")
+        if not isinstance(messages, list):
+            log(f"❌ FAILED: 'messages' is not an array")
+            return False
         
-        # Test 10c: POST upload
-        log("\n   10c. Testing POST /api/uploads...")
-        # Create a tiny 1x1 PNG
+        if len(messages) != 1:
+            log(f"❌ FAILED: Expected 1 message, got {len(messages)}")
+            return False
+        
+        msg = messages[0]
+        if msg.get('from_user_id') != user_a_id:
+            log(f"❌ FAILED: Message from_user_id mismatch")
+            return False
+        
+        if msg.get('content') != "Ciao Bruno!":
+            log(f"❌ FAILED: Message content mismatch")
+            return False
+        
+        log(f"✅ TEST 10 PASSED: Conversation retrieved")
+        log(f"   Other user: {other_user.get('username')}")
+        log(f"   Messages: {len(messages)}")
+        
+        # TEST 11: As B, GET /api/messages-unread-count - should be 1
+        log("\n" + "=" * 80)
+        log("TEST 11: As B, GET /api/messages-unread-count (expect 1)")
+        log("=" * 80)
+        
+        resp = session_b.get(f"{BASE_URL}/messages-unread-count")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        unread_data = resp.json()
+        count = unread_data.get('count')
+        
+        if count != 1:
+            log(f"❌ FAILED: Expected count=1, got {count}")
+            return False
+        
+        log(f"✅ TEST 11 PASSED: Unread count = 1")
+        
+        # TEST 12: As B, GET /api/messages - verify conversation with A
+        log("\n" + "=" * 80)
+        log("TEST 12: As B, GET /api/messages - verify conversation with A")
+        log("=" * 80)
+        
+        resp = session_b.get(f"{BASE_URL}/messages")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        messages_data = resp.json()
+        conversations = messages_data.get('conversations', [])
+        
+        if len(conversations) != 1:
+            log(f"❌ FAILED: Expected 1 conversation, got {len(conversations)}")
+            return False
+        
+        conv = conversations[0]
+        
+        # Verify conversation structure
+        required_fields = ['user', 'last_message', 'last_at', 'last_from_me', 'unread']
+        for field in required_fields:
+            if field not in conv:
+                log(f"❌ FAILED: Missing field '{field}' in conversation")
+                return False
+        
+        if conv['user']['id'] != user_a_id:
+            log(f"❌ FAILED: Conversation user ID mismatch")
+            return False
+        
+        if conv['last_message'] != "Ciao Bruno!":
+            log(f"❌ FAILED: last_message mismatch: {conv['last_message']}")
+            return False
+        
+        if conv['last_from_me'] != False:
+            log(f"❌ FAILED: last_from_me should be False, got {conv['last_from_me']}")
+            return False
+        
+        if conv['unread'] != 1:
+            log(f"❌ FAILED: unread should be 1, got {conv['unread']}")
+            return False
+        
+        log(f"✅ TEST 12 PASSED: Conversation list correct")
+        log(f"   User: {conv['user'].get('username')}")
+        log(f"   Last message: {conv['last_message']}")
+        log(f"   Unread: {conv['unread']}")
+        
+        # TEST 13: As B, GET /api/messages/{A_id} - marks as read
+        log("\n" + "=" * 80)
+        log("TEST 13: As B, GET /api/messages/{A_id} - auto-mark as read")
+        log("=" * 80)
+        
+        resp = session_b.get(f"{BASE_URL}/messages/{user_a_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        conv_data = resp.json()
+        messages = conv_data.get('messages', [])
+        
+        if len(messages) != 1:
+            log(f"❌ FAILED: Expected 1 message, got {len(messages)}")
+            return False
+        
+        log(f"✅ TEST 13 PASSED: Conversation retrieved (messages marked as read)")
+        log(f"   Messages: {len(messages)}")
+        
+        # TEST 14: As B, GET /api/messages-unread-count - should be 0 now
+        log("\n" + "=" * 80)
+        log("TEST 14: As B, GET /api/messages-unread-count (expect 0 after read)")
+        log("=" * 80)
+        
+        resp = session_b.get(f"{BASE_URL}/messages-unread-count")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        unread_data = resp.json()
+        count = unread_data.get('count')
+        
+        if count != 0:
+            log(f"❌ FAILED: Expected count=0, got {count}")
+            return False
+        
+        log(f"✅ TEST 14 PASSED: Unread count = 0 (messages marked as read)")
+        
+        # TEST 15: As B, POST /api/messages/{A_id} - reply
+        log("\n" + "=" * 80)
+        log("TEST 15: As B, POST /api/messages/{A_id} - reply 'Ciao Anna!'")
+        log("=" * 80)
+        
+        reply_data = {"content": "Ciao Anna!"}
+        resp = session_b.post(f"{BASE_URL}/messages/{user_a_id}", json=reply_data)
+        
+        if resp.status_code != 201:
+            log(f"❌ FAILED: Expected 201, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        reply_response = resp.json()
+        reply_obj = reply_response.get('message')
+        
+        if not reply_obj:
+            log(f"❌ FAILED: No 'message' object in response")
+            return False
+        
+        if reply_obj['content'] != "Ciao Anna!":
+            log(f"❌ FAILED: Reply content mismatch")
+            return False
+        
+        log(f"✅ TEST 15 PASSED: Reply sent successfully")
+        log(f"   Content: {reply_obj['content']}")
+        
+        # TEST 16: As A, GET /api/messages/{B_id} - verify 2 messages in order
+        log("\n" + "=" * 80)
+        log("TEST 16: As A, GET /api/messages/{B_id} - verify 2 messages chronological")
+        log("=" * 80)
+        
+        resp = session_a.get(f"{BASE_URL}/messages/{user_b_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
+            log(f"   Response: {resp.text}")
+            return False
+        
+        conv_data = resp.json()
+        messages = conv_data.get('messages', [])
+        
+        if len(messages) != 2:
+            log(f"❌ FAILED: Expected 2 messages, got {len(messages)}")
+            return False
+        
+        # Verify chronological order
+        if messages[0]['content'] != "Ciao Bruno!":
+            log(f"❌ FAILED: First message should be 'Ciao Bruno!', got '{messages[0]['content']}'")
+            return False
+        
+        if messages[1]['content'] != "Ciao Anna!":
+            log(f"❌ FAILED: Second message should be 'Ciao Anna!', got '{messages[1]['content']}'")
+            return False
+        
+        log(f"✅ TEST 16 PASSED: 2 messages in chronological order")
+        log(f"   Message 1: {messages[0]['content']}")
+        log(f"   Message 2: {messages[1]['content']}")
+        
+        # TEST 17: Unauthenticated requests should return 401
+        log("\n" + "=" * 80)
+        log("TEST 17: Unauthenticated requests (expect 401)")
+        log("=" * 80)
+        
+        # Test GET /api/community/users without auth
+        resp = unauth_session.get(f"{BASE_URL}/community/users")
+        if resp.status_code != 401:
+            log(f"❌ FAILED: GET /api/community/users expected 401, got {resp.status_code}")
+            return False
+        log(f"   ✅ GET /api/community/users -> 401")
+        
+        # Test GET /api/messages without auth
+        resp = unauth_session.get(f"{BASE_URL}/messages")
+        if resp.status_code != 401:
+            log(f"❌ FAILED: GET /api/messages expected 401, got {resp.status_code}")
+            return False
+        log(f"   ✅ GET /api/messages -> 401")
+        
+        # Test POST /api/messages without auth
+        resp = unauth_session.post(f"{BASE_URL}/messages/{user_b_id}", json={"content": "test"})
+        if resp.status_code != 401:
+            log(f"❌ FAILED: POST /api/messages expected 401, got {resp.status_code}")
+            return False
+        log(f"   ✅ POST /api/messages -> 401")
+        
+        log(f"✅ TEST 17 PASSED: Unauthenticated requests correctly return 401")
+        
+        # TEST 18: Regression - verify existing endpoints still work
+        log("\n" + "=" * 80)
+        log("TEST 18: Regression - verify existing endpoints still work")
+        log("=" * 80)
+        
+        # Get motorcycle ID for user A
+        resp = session_a.get(f"{BASE_URL}/dashboard")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/dashboard failed: {resp.status_code}")
+            return False
+        
+        dashboard_data = resp.json()
+        motos = dashboard_data.get('motos', [])
+        if len(motos) == 0:
+            log(f"❌ FAILED: No motorcycles found")
+            return False
+        
+        motorcycle_id = motos[0]['id']
+        public_id = motos[0]['public_id']
+        
+        log(f"   ✅ GET /api/dashboard working")
+        
+        # Test GET /api/public/{public_id} without auth
+        resp = unauth_session.get(f"{BASE_URL}/public/{public_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/public/{public_id} failed: {resp.status_code}")
+            return False
+        log(f"   ✅ GET /api/public/{public_id} working (no auth)")
+        
+        # Test POST /api/uploads
         import base64
         tiny_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         upload_data = {
             "data": f"data:image/png;base64,{tiny_png}",
             "filename": "test.png"
         }
-        resp = owner_session.post(f"{BASE_URL}/uploads", json=upload_data)
+        resp = session_a.post(f"{BASE_URL}/uploads", json=upload_data)
         if resp.status_code != 201:
-            log(f"   ❌ POST upload failed: {resp.status_code} - {resp.text}")
+            log(f"❌ FAILED: POST /api/uploads failed: {resp.status_code}")
             return False
+        log(f"   ✅ POST /api/uploads working")
         
-        file_id = resp.json().get('id')
-        log(f"   ✅ POST upload successful: {file_id}")
-        
-        # Clean up maintenance
-        if maint_id:
-            owner_session.delete(f"{BASE_URL}/motorcycles/{motorcycle_id}/maintenance/{maint_id}")
-        
-        log(f"\n✅ TEST 10 PASSED: All regression tests successful")
+        log(f"✅ TEST 18 PASSED: All regression tests successful")
         
         log("\n" + "=" * 80)
-        log("🎉 ALL POST-IT TESTS PASSED!")
+        log("🎉 ALL COMMUNITY + MESSAGING TESTS PASSED!")
         log("=" * 80)
         
         return True
@@ -475,11 +612,11 @@ def test_postit_feature():
         return False
 
 if __name__ == "__main__":
-    log("Starting MotoDNA Backend Tests - Post-it (Guestbook) Feature")
+    log("Starting MotoDNA Backend Tests - Community + Direct Messaging Feature")
     log(f"Base URL: {BASE_URL}")
     log("")
     
-    result = test_postit_feature()
+    result = test_community_messaging()
     
     if result:
         log("\n" + "=" * 80)

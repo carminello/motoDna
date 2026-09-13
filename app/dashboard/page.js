@@ -5,22 +5,25 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Gauge, Plus, Wifi, Wrench, Calendar, Bell, LogOut, Cpu, ArrowUpRight } from 'lucide-react';
+import { Gauge, Plus, Wifi, Wrench, Calendar, Bell, LogOut, Cpu, ArrowUpRight, Users, MessageSquare } from 'lucide-react';
 import Logo from '@/components/Logo';
 
 export default function Dashboard() {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/auth/me').then(r => r.json()),
       fetch('/api/dashboard').then(r => r.json()),
-    ]).then(([me, dash]) => {
+      fetch('/api/messages-unread-count').then(r => r.json()).catch(() => ({ count: 0 })),
+    ]).then(([me, dash, un]) => {
       if (!me.user) return router.push('/');
       setUser(me.user);
       setData(dash);
+      setUnread(un.count || 0);
     });
   }, [router]);
 
@@ -40,8 +43,10 @@ export default function Dashboard() {
             <Logo size={32} />
             <span className="font-bold tracking-tight">MotoDNA</span>
           </Link>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-neutral-400 hidden sm:block">{user?.email}</span>
+          <div className="flex items-center gap-2">
+            <Link href="/community"><Button variant="ghost" size="sm" className="text-neutral-300 hover:text-white"><Users className="w-4 h-4 md:mr-1" /><span className="hidden md:inline">Community</span></Button></Link>
+            <Link href="/messages"><Button variant="ghost" size="sm" className="text-neutral-300 hover:text-white relative"><MessageSquare className="w-4 h-4 md:mr-1" /><span className="hidden md:inline">Messaggi</span>{unread > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">{unread}</span>}</Button></Link>
+            <span className="text-xs text-neutral-400 hidden sm:block ml-2">{user?.email}</span>
             <Button variant="ghost" size="sm" onClick={logout}><LogOut className="w-4 h-4" /></Button>
           </div>
         </div>
