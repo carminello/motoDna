@@ -741,6 +741,156 @@ agent_communication:
       No critical issues found. All endpoints functioning as expected.
 
 
+  - task: "Admin Dashboard (stats + user growth chart, gated by is_admin)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js, app/admin/page.js, scripts/promote_admin.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          NEW FEATURE - Admin dashboard.
+
+          1) is_admin flag on user documents. Admins promoted via
+             /app/scripts/promote_admin.js <email>.
+             carminellout@gmail.com already promoted.
+
+          2) GET /api/auth/me now updates last_seen (best-effort, non-blocking)
+             on the current user so we can compute online_24h.
+
+          3) NEW endpoint GET /api/admin/stats (auth required + is_admin required):
+             - 403 if not admin
+             - Returns:
+                stats.total_users, stats.new_today, stats.new_7d,
+                stats.total_bikes, stats.total_postits (excluding hidden),
+                stats.total_messages, stats.online_24h,
+                stats.total_scans, stats.total_gallery, stats.total_maintenance,
+                stats.total_timeline, stats.total_modifications
+             - chart_registrations_30d: 30-item array, one per day (last 30 days),
+               shape { date: 'YYYY-MM-DD', label: 'DD/MM', users: N }, gaps zero-filled.
+             - recent_users: last 10 registered users (no password_hash).
+
+          4) Frontend /admin (client component):
+             - Fetches /api/admin/stats. 401 → redirect to /. 403 → shows access-denied card.
+             - Grid of stats cards: primary (users, online 24h, new today, new 7d),
+               community activity (bikes, post-its, messages, scans),
+               content (gallery, maintenance, timeline, modifications).
+             - Recharts AreaChart for user growth over last 30 days (orange gradient).
+             - Recent users list with avatar, email, admin badge, last_seen.
+
+          5) Dashboard header: shows a red-tinted "Admin" link ONLY when user.is_admin.
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED - All 6 comprehensive test scenarios passed successfully:
+          
+          TEST 1: GET /api/admin/stats without auth → 401 ✓
+          - Unauthenticated request correctly returns 401
+          
+          TEST 2: As non-admin user, GET /api/admin/stats → 403 ✓
+          - Non-admin user correctly denied with 403
+          - Error message: "Accesso riservato agli admin" (exact match)
+          
+          TEST 3: As admin user, GET /api/admin/stats → 200 ✓
+          - Admin stats endpoint returns 200 with proper structure
+          - All 12 required stats keys verified: total_users, new_today, new_7d, total_bikes, total_postits, total_messages, online_24h, total_scans, total_gallery, total_maintenance, total_timeline, total_modifications
+          - All stats values are non-negative numbers
+          - chart_registrations_30d: exactly 30 items, each with { date: 'YYYY-MM-DD', label: 'DD/MM', users: number }
+          - recent_users: array up to 10 items, NEVER contains password_hash (security verified)
+          
+          TEST 4: online_24h tracking → working ✓
+          - User A hit /api/auth/me (updates last_seen)
+          - Re-fetched stats as admin B
+          - online_24h count increased to 1 (includes User A)
+          
+          TEST 5: new_today count → correct ✓
+          - new_today: 4 (includes User A and User B registered during test)
+          - total_users: 5
+          
+          TEST 6: Regression tests → all passed ✓
+          - GET /api/community/users: 200
+          - GET /api/public/{public_id} (no auth): 200, no sensitive fields (plate, owner_id, is_demo) exposed
+          - GET /api/messages: 200
+          
+          CLEANUP: Successfully deleted 2 test users and all related data from database.
+          
+          All endpoints functioning correctly. No critical issues found.
+          Admin Dashboard feature is production-ready.
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Test the new admin dashboard on MotoDNA. Base URL: NEXT_PUBLIC_BASE_URL from /app/.env.
+
+      Setup:
+      - Register user A (non-admin, fresh email).
+      - Register user B (fresh email). Then run a bash command to promote B to admin:
+          node /app/scripts/promote_admin.js <B_email>
+        (or connect to Mongo directly to set users.is_admin=true for B).
+
+      Tests:
+      1) Without auth cookie: GET /api/admin/stats → 401.
+      2) As A (non-admin): GET /api/admin/stats → 403 with { error: 'Accesso riservato agli admin' }.
+      3) As B (admin): GET /api/admin/stats → 200 with:
+         - stats containing keys: total_users, new_today, new_7d, total_bikes, total_postits,
+           total_messages, online_24h, total_scans, total_gallery, total_maintenance,
+           total_timeline, total_modifications (all numeric, non-negative).
+         - chart_registrations_30d: array of exactly 30 items, each has { date, label, users:number }.
+         - recent_users: array up to 10 items, each without password_hash.
+      4) online_24h: hit /api/auth/me as A (updates last_seen), then re-fetch /api/admin/stats as B → online_24h count should include A.
+      5) new_today: total_users increased by 1 compared to before A's registration.
+      6) Regression:
+         - As A, GET /api/community/users still works (200).
+         - GET /api/public/{A's public_id} (no auth) still works.
+         - GET /api/messages, /api/messages-unread-count still work as A.
+
+      IMPORTANT: only report FAILURES here. Cleanup: any users you register during the test.
+      Update /app/test_result.md with results.
+  
+  - agent: "testing"
+    message: |
+      Admin Dashboard feature testing completed - ALL TESTS PASSED ✅
+      
+      Comprehensive testing performed on all 6 scenarios with 100% success rate:
+      
+      ✅ TEST 1: Unauthenticated Access Control
+      - GET /api/admin/stats without auth cookie → 401 (correctly blocked)
+      
+      ✅ TEST 2: Non-Admin Access Control
+      - Registered User A (non-admin)
+      - GET /api/admin/stats as User A → 403 with exact error message "Accesso riservato agli admin"
+      
+      ✅ TEST 3: Admin Stats Endpoint Structure
+      - Registered User B and promoted to admin using node /app/scripts/promote_admin.js
+      - GET /api/admin/stats as User B → 200 with complete structure:
+        * All 12 required stats keys present and valid (total_users, new_today, new_7d, total_bikes, total_postits, total_messages, online_24h, total_scans, total_gallery, total_maintenance, total_timeline, total_modifications)
+        * All stats values are non-negative numbers
+        * chart_registrations_30d: exactly 30 items with correct structure { date: 'YYYY-MM-DD', label: 'DD/MM', users: number }
+        * recent_users: array with up to 10 items, NEVER contains password_hash (security verified)
+      
+      ✅ TEST 4: Online Tracking (last_seen)
+      - User A hit /api/auth/me (updates last_seen timestamp)
+      - Re-fetched stats as admin B
+      - online_24h count increased to 1 (correctly includes User A)
+      
+      ✅ TEST 5: New User Counting
+      - new_today: 4 (correctly includes User A and User B registered during test)
+      - total_users: 5
+      
+      ✅ TEST 6: Regression Tests
+      - GET /api/community/users: 200 ✓
+      - GET /api/public/{public_id} (no auth): 200, no sensitive fields exposed ✓
+      - GET /api/messages: 200 ✓
+      
+      CLEANUP: Successfully deleted 2 test users and all related data from database.
+      
+      No critical issues found. All endpoints functioning as expected.
+      Admin Dashboard backend is production-ready.
+
+
   - task: "Community endpoint improvements + test users cleanup + cover previews"
     implemented: true
     working: true

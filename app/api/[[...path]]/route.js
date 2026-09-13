@@ -103,9 +103,11 @@ async function handler(request, { params }) {
     }
 
     if (path === '/auth/me' && method === 'GET') {
-      const auth = await getUserFromRequest(request);
-      if (!auth) return json({ user: null });
-      const user = await db.collection('users').findOne({ id: auth.sub }, { projection: { password_hash: 0, _id: 0 } });
+      const authMe = await getUserFromRequest(request);
+      if (!authMe) return json({ user: null });
+      // Track last_seen (best-effort, non-blocking)
+      db.collection('users').updateOne({ id: authMe.sub }, { $set: { last_seen: new Date() } }).catch(() => {});
+      const user = await db.collection('users').findOne({ id: authMe.sub }, { projection: { password_hash: 0, _id: 0 } });
       return json({ user });
     }
 
@@ -282,6 +284,83 @@ async function handler(request, { params }) {
       });
       const url = `/api/files/${id.toHexString()}`;
       return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length }, 201);
+    }
+
+    // ============== ADMIN ==============
+    // GET /api/admin/stats - only admins
+    if (p[0] === 'admin' && p[1] === 'stats' && method === 'GET') {
+      const me = await db.collection('users').findOne({ id: userId }, { projection: { is_admin: 1, _id: 0 } });
+      if (!me?.is_admin) return json({ error: 'Accesso riservato agli admin' }, 403);
+
+      const now = new Date();
+      const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
+      const start7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const start30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const [
+        totalUsers, newToday, new7d, totalBikes, totalPostits,
+        totalMessages, onlineLast24h, registrationsByDay
+      ] = await Promise.all([
+        db.collection('users').countDocuments({}),
+        db.collection('users').countDocuments({ created_at: { $gte: startToday } }),
+        db.collection('users').countDocuments({ created_at: { $gte: start7d } }),
+        db.collection('motorcycles').countDocuments({}),
+        db.collection('postits').countDocuments({ is_hidden: { $ne: true } }),
+        db.collection('messages').countDocuments({}),
+        db.collection('users').countDocuments({ last_seen: { $gte: start24h } }),
+        db.collection('users').aggregate([
+          { $match: { created_at: { $gte: start30d } } },
+          { $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
+            count: { $sum: 1 }
+          } },
+          { $sort: { _id: 1 } }
+        ]).toArray()
+      ]);
+
+      // Build a continuous 30-day chart array (fill gaps with 0)
+      const chart = [];
+      const dayMs = 24 * 60 * 60 * 1000;
+      const map = Object.fromEntries(registrationsByDay.map(r => [r._id, r.count]));
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * dayMs);
+        const key = d.toISOString().slice(0, 10);
+        chart.push({ date: key, label: d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }), users: map[key] || 0 });
+      }
+
+      // Recent users (last 10)
+      const recentUsers = await db.collection('users').find({}, {
+        projection: { _id: 0, id: 1, username: 1, first_name: 1, last_name: 1, email: 1, profile_photo: 1, created_at: 1, last_seen: 1, is_admin: 1 }
+      }).sort({ created_at: -1 }).limit(10).toArray();
+
+      // Total scans, gallery items for extra "likes/comments" style metrics
+      const [totalScans, totalGallery, totalMaintenance, totalTimeline, totalMods] = await Promise.all([
+        db.collection('nfc_scans').countDocuments({}),
+        db.collection('gallery').countDocuments({}),
+        db.collection('maintenance').countDocuments({}),
+        db.collection('timeline').countDocuments({}),
+        db.collection('modifications').countDocuments({}),
+      ]);
+
+      return json({
+        stats: {
+          total_users: totalUsers,
+          new_today: newToday,
+          new_7d: new7d,
+          total_bikes: totalBikes,
+          total_postits: totalPostits,
+          total_messages: totalMessages,
+          online_24h: onlineLast24h,
+          total_scans: totalScans,
+          total_gallery: totalGallery,
+          total_maintenance: totalMaintenance,
+          total_timeline: totalTimeline,
+          total_modifications: totalMods,
+        },
+        chart_registrations_30d: chart,
+        recent_users: recentUsers,
+      });
     }
 
     // ============== COMMUNITY & MESSAGES ==============

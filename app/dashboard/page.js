@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Gauge, Plus, Wifi, Wrench, Calendar, Bell, LogOut, Cpu, ArrowUpRight, Users, MessageSquare } from 'lucide-react';
+import { Gauge, Plus, Wifi, Wrench, Calendar, Bell, LogOut, Cpu, ArrowUpRight, Users, MessageSquare, ShieldCheck } from 'lucide-react';
 import Logo from '@/components/Logo';
 
 export default function Dashboard() {
@@ -44,6 +44,9 @@ export default function Dashboard() {
             <span className="font-bold tracking-tight">MotoDNA</span>
           </Link>
           <div className="flex items-center gap-2">
+            {user?.is_admin && (
+              <Link href="/admin"><Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300"><ShieldCheck className="w-4 h-4 md:mr-1" /><span className="hidden md:inline">Admin</span></Button></Link>
+            )}
             <Link href="/community"><Button variant="ghost" size="sm" className="text-neutral-300 hover:text-white"><Users className="w-4 h-4 md:mr-1" /><span className="hidden md:inline">Community</span></Button></Link>
             <Link href="/messages"><Button variant="ghost" size="sm" className="text-neutral-300 hover:text-white relative"><MessageSquare className="w-4 h-4 md:mr-1" /><span className="hidden md:inline">Messaggi</span>{unread > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">{unread}</span>}</Button></Link>
             <span className="text-xs text-neutral-400 hidden sm:block ml-2">{user?.email}</span>
