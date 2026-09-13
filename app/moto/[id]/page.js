@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Download, Gauge, Pencil } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Download, Gauge, Pencil, MessageSquare } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
@@ -35,7 +35,7 @@ export default function MotoPage({ params }) {
   useEffect(() => { load(); }, [id]);
 
   if (!data) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
-  const { moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc } = data;
+  const { moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits = [] } = data;
 
   const publicUrl = `${window.location.origin}/m/${moto.public_id}`;
 
@@ -140,6 +140,7 @@ export default function MotoPage({ params }) {
             <TabsTrigger value="modifications"><Sparkles className="w-3 h-3 mr-1" />Modifiche</TabsTrigger>
             <TabsTrigger value="gallery"><Img className="w-3 h-3 mr-1" />Galleria</TabsTrigger>
             <TabsTrigger value="documents"><FileText className="w-3 h-3 mr-1" />Documenti</TabsTrigger>
+            <TabsTrigger value="bacheca"><MessageSquare className="w-3 h-3 mr-1" />Bacheca {postits.length > 0 && <Badge className="ml-1 bg-orange-500/20 text-orange-400 text-[9px] px-1">{postits.length}</Badge>}</TabsTrigger>
             <TabsTrigger value="nfc"><Wifi className="w-3 h-3 mr-1" />NFC</TabsTrigger>
           </TabsList>
 
@@ -326,6 +327,47 @@ export default function MotoPage({ params }) {
                 </Card>
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="bacheca" className="mt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">Bacheca dei visitatori</h2>
+                <p className="text-xs text-neutral-500">I post-it lasciati da chi scansiona il tuo tag NFC. Puoi nascondere i messaggi indesiderati.</p>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold mono">{postits.length}</div>
+                <div className="text-[10px] mono uppercase text-neutral-500">Totali</div>
+              </div>
+            </div>
+            {postits.length === 0 ? (
+              <Card className="metallic p-10 text-center text-neutral-500 text-sm">
+                Nessun post-it ricevuto. Condividi il tuo tag NFC per iniziare a raccogliere messaggi!
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {postits.map(pt => (
+                  <Card key={pt.id} className={`metallic p-4 flex items-start justify-between gap-3 ${pt.is_hidden ? 'opacity-50' : ''}`}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm">{pt.author_name}</span>
+                        <span className="text-[10px] mono text-neutral-500">{new Date(pt.created_at).toLocaleString('it-IT')}</span>
+                        {pt.is_hidden && <Badge className="bg-red-500/20 text-red-400 text-[10px]"><EyeOff className="w-2.5 h-2.5 mr-1" />NASCOSTO</Badge>}
+                      </div>
+                      <p className="text-sm text-neutral-200 whitespace-pre-wrap">{pt.message}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => patch('postits', pt.id, { is_hidden: !pt.is_hidden })} className="p-1.5 rounded-md hover:bg-white/5 text-neutral-400 hover:text-white transition" title={pt.is_hidden ? 'Rendi visibile' : 'Nascondi'}>
+                        {pt.is_hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                      </button>
+                      <button onClick={() => del('postits', pt.id)} className="p-1.5 rounded-md hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition" title="Elimina">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="nfc" className="mt-6">

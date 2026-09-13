@@ -3,7 +3,11 @@ import { useEffect, useState, use } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Cpu, Wifi, Gauge, Calendar, Wrench, Sparkles, Image as ImgIcon, MapPin, Zap, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Cpu, Wifi, Gauge, Calendar, Wrench, Sparkles, Image as ImgIcon, MapPin, Zap, ShieldCheck, ChevronRight, MessageSquare, Send } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import Logo from '@/components/Logo';
 
 export default function PublicProfile({ params }) {
@@ -34,7 +38,9 @@ export default function PublicProfile({ params }) {
     </div>
   );
 
-  const { moto, owner, maintenance, timeline, modifications, gallery, scan_count } = data;
+  const { moto, owner, maintenance, timeline, modifications, gallery, scan_count, postits = [] } = data;
+  const [postitList, setPostitList] = useState(postits);
+  useEffect(() => { setPostitList(postits); }, [data]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -206,6 +212,9 @@ export default function PublicProfile({ params }) {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Post-it Wall */}
+        <PostItWall publicId={public_id} initialList={postitList} onAdded={(p) => setPostitList([p, ...postitList])} />
       </div>
 
       {/* CTA Footer */}
@@ -235,5 +244,93 @@ function StatMini({ icon: Icon, label, value }) {
       <div className="text-2xl font-bold font-mono">{value}</div>
       <div className="text-[10px] mono uppercase text-neutral-500 tracking-widest">{label}</div>
     </div>
+  );
+}
+
+const POSTIT_COLORS = [
+  { bg: 'bg-yellow-200', text: 'text-yellow-950', tape: 'bg-yellow-100/60' },
+  { bg: 'bg-orange-200', text: 'text-orange-950', tape: 'bg-orange-100/60' },
+  { bg: 'bg-pink-200', text: 'text-pink-950', tape: 'bg-pink-100/60' },
+  { bg: 'bg-lime-200', text: 'text-lime-950', tape: 'bg-lime-100/60' },
+  { bg: 'bg-sky-200', text: 'text-sky-950', tape: 'bg-sky-100/60' },
+];
+
+function timeAgo(date) {
+  const d = new Date(date);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'ora';
+  if (s < 3600) return `${Math.floor(s / 60)}m fa`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h fa`;
+  if (s < 604800) return `${Math.floor(s / 86400)}g fa`;
+  return d.toLocaleDateString('it-IT');
+}
+
+function PostItWall({ publicId, initialList, onAdded }) {
+  const [author, setAuthor] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/public/${publicId}/postit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ author_name: author, message }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      onAdded(data.postit);
+      setMessage(''); setAuthor('');
+      toast.success('Grazie per il tuo post-it!');
+    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="mt-12">
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquare className="w-4 h-4 text-orange-400" />
+        <div className="text-xs mono uppercase text-orange-400 tracking-widest">// Bacheca</div>
+      </div>
+      <h2 className="text-2xl font-bold mb-1">Lascia un post-it</h2>
+      <p className="text-sm text-neutral-400 mb-6">Un complimento, un ricordo, un messaggio per il proprietario. Resterà sulla bacheca della moto.</p>
+
+      <form onSubmit={submit} className="metallic rounded-2xl p-5 mb-8 space-y-3">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Input placeholder="Il tuo nome (opzionale)" value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={60} />
+          <Textarea placeholder="Il tuo messaggio..." value={message} onChange={(e) => setMessage(e.target.value)} rows={2} maxLength={500} className="md:col-span-2 resize-none" required />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] mono text-neutral-500">{message.length}/500 · Max 5 post-it al minuto</div>
+          <Button type="submit" disabled={busy || !message.trim()} className="bg-orange-600 hover:bg-orange-500">
+            <Send className="w-3 h-3 mr-1" />{busy ? 'Invio...' : 'Attacca il post-it'}
+          </Button>
+        </div>
+      </form>
+
+      {initialList.length === 0 ? (
+        <div className="text-center py-12 text-neutral-500 text-sm border border-dashed border-white/10 rounded-2xl">
+          Nessun post-it ancora. Sii il primo a lasciare un messaggio!
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {initialList.map((p, i) => {
+            const color = POSTIT_COLORS[i % POSTIT_COLORS.length];
+            const rotate = (i % 5) - 2; // -2..+2 deg
+            return (
+              <div key={p.id} className="relative" style={{ transform: `rotate(${rotate}deg)` }}>
+                {/* Tape */}
+                <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-16 h-5 ${color.tape} shadow-md`} style={{ transform: 'translateX(-50%) rotate(-3deg)' }} />
+                <div className={`${color.bg} ${color.text} p-5 shadow-2xl min-h-[160px] flex flex-col`} style={{ fontFamily: '"Kalam", "Caveat", cursive, sans-serif' }}>
+                  <p className="flex-1 text-base leading-snug whitespace-pre-wrap break-words">{p.message}</p>
+                  <div className="mt-3 pt-3 border-t border-black/10 flex items-center justify-between text-xs">
+                    <span className="font-semibold">— {p.author_name}</span>
+                    <span className="opacity-60">{timeAgo(p.created_at)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }

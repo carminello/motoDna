@@ -120,10 +120,35 @@ async function handler(request, { params }) {
       const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ event_date: -1 }).limit(50).toArray();
       const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0 } }).sort({ installation_date: -1 }).limit(50).toArray();
       const gallery = await db.collection('gallery').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ created_at: -1 }).limit(100).toArray();
+      const postits = await db.collection('postits').find({ motorcycle_id: moto.id, is_hidden: { $ne: true } }, { projection: { _id: 0, ip_hint: 0 } }).sort({ created_at: -1 }).limit(200).toArray();
       const nfc = await db.collection('nfc_tags').findOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { projection: { _id: 0, scan_count: 1 } });
       db.collection('nfc_tags').updateOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { $inc: { scan_count: 1 }, $set: { last_scan_at: new Date() } }).catch(() => {});
       db.collection('nfc_scans').insertOne({ id: uuidv4(), motorcycle_id: moto.id, scanned_at: new Date(), device_type: (request.headers.get('user-agent') || '').slice(0, 200) }).catch(() => {});
-      return json({ moto, owner, maintenance, timeline, modifications, gallery, scan_count: (nfc?.scan_count || 0) + 1 });
+      return json({ moto, owner, maintenance, timeline, modifications, gallery, postits, scan_count: (nfc?.scan_count || 0) + 1 });
+    }
+
+    // ============== PUBLIC POST-IT (no auth) ==============
+    if (p[0] === 'public' && p[1] && p[2] === 'postit' && method === 'POST') {
+      const publicId = p[1];
+      const moto = await db.collection('motorcycles').findOne({ public_id: publicId, public_profile: true });
+      if (!moto) return json({ error: 'Moto non trovata' }, 404);
+      const body = await request.json().catch(() => ({}));
+      const message = String(body.message || '').trim().slice(0, 500);
+      const author = String(body.author_name || '').trim().slice(0, 60) || 'Anonimo';
+      if (!message) return json({ error: 'Messaggio richiesto' }, 400);
+      // Very light anti-spam: reject if same IP posted >5 times in last minute
+      const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+      const recent = await db.collection('postits').countDocuments({ motorcycle_id: moto.id, ip_hint: ip, created_at: { $gt: new Date(Date.now() - 60_000) } });
+      if (recent >= 5) return json({ error: 'Troppi messaggi, riprova tra un minuto' }, 429);
+      const doc = {
+        id: uuidv4(), motorcycle_id: moto.id,
+        author_name: author, message,
+        is_hidden: false, ip_hint: ip.slice(0, 45),
+        created_at: new Date(),
+      };
+      await db.collection('postits').insertOne(doc);
+      delete doc._id; delete doc.ip_hint;
+      return json({ postit: doc }, 201);
     }
 
     // ============== AUTHENTICATED ==============
@@ -219,7 +244,8 @@ async function handler(request, { params }) {
       const documents = await db.collection('documents').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).sort({ document_date: -1 }).toArray();
       const reminders = await db.collection('reminders').find({ motorcycle_id: moto.id }, { projection: { _id: 0 } }).toArray();
       const nfc = await db.collection('nfc_tags').findOne({ motorcycle_id: moto.id, status: 'ACTIVE' }, { projection: { _id: 0 } });
-      return json({ moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc });
+      const postits = await db.collection('postits').find({ motorcycle_id: moto.id }, { projection: { _id: 0, ip_hint: 0 } }).sort({ created_at: -1 }).toArray();
+      return json({ moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits });
     }
 
     if (p[0] === 'motorcycles' && p[1] && !p[2] && method === 'PUT') {
@@ -276,7 +302,7 @@ async function handler(request, { params }) {
     // PATCH sub-item (edit is_public etc)
     if (p[0] === 'motorcycles' && p[1] && p[2] && p[3] && (method === 'PATCH' || method === 'PUT')) {
       const kind = p[2];
-      const valid = ['maintenance','timeline','modifications','gallery','documents','reminders'];
+      const valid = ['maintenance','timeline','modifications','gallery','documents','reminders','postits'];
       if (!valid.includes(kind)) return json({ error: 'Risorsa sconosciuta' }, 400);
       const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
       if (!moto) return json({ error: 'Non autorizzato' }, 403);
@@ -288,6 +314,7 @@ async function handler(request, { params }) {
         gallery: ['caption','category','is_cover','is_public'],
         documents: ['title','document_type','document_date','is_public'],
         reminders: ['title','description','target_date','target_mileage','repeat_interval_km','repeat_interval_months','status'],
+        postits: ['is_hidden'],
       };
       const updates = {};
       for (const f of allowed[kind]) if (f in body) updates[f] = body[f];
@@ -303,7 +330,7 @@ async function handler(request, { params }) {
 
     if (p[0] === 'motorcycles' && p[1] && p[2] && p[3] && method === 'DELETE') {
       const kind = p[2];
-      const valid = ['maintenance','timeline','modifications','gallery','documents','reminders'];
+      const valid = ['maintenance','timeline','modifications','gallery','documents','reminders','postits'];
       if (!valid.includes(kind)) return json({ error: 'Risorsa sconosciuta' }, 400);
       const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
       if (!moto) return json({ error: 'Non autorizzato' }, 403);

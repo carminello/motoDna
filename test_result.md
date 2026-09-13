@@ -198,6 +198,77 @@ backend:
         comment: "POST /motorcycles/:id/nfc marks previous ACTIVE tag as REPLACED and creates a new one."
       - working: false
         agent: "testing"
+
+  - task: "Public post-it (guestbook) + owner moderation"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          New feature. Endpoints:
+          - POST /api/public/:public_id/postit (no auth) creates a post-it {author_name, message}. 500 char max.
+            Rate limit: max 5 posts / IP / minute (returns 429).
+            Requires moto.public_profile=true.
+          - GET /api/public/:public_id now returns postits[] (only non-hidden).
+          - GET /api/motorcycles/:id (auth) returns all postits (incl. hidden).
+          - PATCH /api/motorcycles/:id/postits/:postitId (auth) toggles is_hidden.
+          - DELETE /api/motorcycles/:id/postits/:postitId (auth) removes.
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED - All 10 post-it feature tests successful:
+          1. POST /api/public/{public_id}/postit with valid data (no auth) -> 201 with postit object containing id, author_name, message, created_at, is_hidden=false
+          2. POST with empty message -> 400 correctly rejected
+          3. Rate limiting working: 5 posts allowed, 6th returns 429 (rate limit correctly enforced)
+          4. GET /api/public/{public_id} without auth -> returns postits[] array with non-hidden posts (5 visible)
+          5. GET /api/motorcycles/{id} as owner -> returns ALL postits including hidden ones
+          6. PATCH /api/motorcycles/{id}/postits/{postit_id} with {is_hidden: true} -> 200, item updated successfully
+          7. GET /api/public/{public_id} again -> hidden postit correctly excluded (4 visible, down from 5)
+          8. DELETE /api/motorcycles/{id}/postits/{postit_id} -> 200, postit successfully removed
+          9. Set public_profile=false then POST postit -> 404 correctly returned (bike private)
+          10. Regression tests PASSED: POST maintenance, POST /api/motorcycles/:id/nfc, POST /api/uploads all working correctly
+          
+          All endpoints functioning as expected. No issues found.
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Please test the new post-it feature end-to-end:
+      1) POST /api/public/{demo_public_id}/postit with {author_name:"Marco", message:"Bellissima!"} without cookie -> 201 with postit object.
+      2) POST with empty message -> 400.
+      3) POST 6 times quickly from same client -> 6th should be 429.
+      4) GET /api/public/{demo_public_id} without cookie -> postits[] contains the created ones (non-hidden).
+      5) As owner: GET /api/motorcycles/:id -> postits[] visible incl. any hidden.
+      6) As owner: PATCH /api/motorcycles/:id/postits/{postit_id} with {is_hidden:true} -> item hidden.
+      7) GET /api/public/:public_id -> hidden postit is NOT in the returned list.
+      8) As owner: DELETE /api/motorcycles/:id/postits/{postit_id} -> gone.
+      9) Set moto.public_profile=false then POST /api/public/:public_id/postit -> 404.
+      Verify no side effects on other endpoints.
+  
+  - agent: "testing"
+    message: |
+      Post-it (guestbook) feature testing completed - ALL TESTS PASSED ✅
+      
+      Comprehensive testing performed on all 10 scenarios:
+      ✅ POST with valid data returns 201 with correct postit structure
+      ✅ POST with empty message correctly rejected with 400
+      ✅ Rate limiting enforced: 5 posts allowed per IP per minute, 6th returns 429
+      ✅ Public endpoint returns postits[] with only non-hidden posts
+      ✅ Owner endpoint returns ALL postits including hidden ones
+      ✅ PATCH to hide post-it works correctly (is_hidden=true)
+      ✅ Hidden post-its correctly excluded from public view
+      ✅ DELETE removes post-it successfully
+      ✅ Private bikes (public_profile=false) correctly return 404 on POST
+      ✅ Regression tests passed: maintenance, NFC regenerate, uploads all working
+      
+      No critical issues found. All endpoints functioning as expected.
+      Backend implementation is solid and ready for production.
+
         comment: "❌ FAILED - POST /api/motorcycles/:id/nfc returns 400 'Risorsa sconosciuta'. ROUTE ORDERING BUG: The generic sub-resources handler (line 236) catches the request before the NFC handler (line 260). FIX: Move NFC handler (lines 260-274) BEFORE sub-resources handler (lines 236-258) in route.js."
       - working: true
         agent: "main"
@@ -222,7 +293,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
 
 test_plan:
   current_focus: []
