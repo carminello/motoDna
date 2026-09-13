@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Download } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Download, Gauge, Pencil } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
@@ -120,8 +120,13 @@ export default function MotoPage({ params }) {
         <div className="absolute bottom-0 left-0 right-0 max-w-6xl mx-auto px-5 pb-6">
           <Badge className="bg-black/70 mono border-white/20 mb-2">{moto.public_id}</Badge>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">{moto.brand} {moto.model}</h1>
-          <div className="flex gap-4 mt-2 text-sm text-neutral-300 mono">
-            <span>{moto.year}</span><span>·</span><span>{moto.engine_cc}cc</span><span>·</span><span>{(moto.current_mileage || 0).toLocaleString('it-IT')} km</span>
+          <div className="flex gap-4 mt-2 text-sm text-neutral-300 mono items-center">
+            <span>{moto.year}</span><span>·</span><span>{moto.engine_cc}cc</span><span>·</span>
+            <span className="flex items-center gap-1.5">
+              <Gauge className="w-3.5 h-3.5 text-orange-400" />
+              <span>{(moto.current_mileage || 0).toLocaleString('it-IT')} km</span>
+              <QuickKmUpdate current={moto.current_mileage || 0} onSave={(km) => updateMoto({ current_mileage: km })} variant="hero" />
+            </span>
           </div>
         </div>
       </div>
@@ -145,12 +150,19 @@ export default function MotoPage({ params }) {
                 <EditMotoDialog moto={moto} onSave={updateMoto} trigger={<Button size="sm" variant="outline"><Edit3 className="w-3 h-3 mr-1" />Modifica</Button>} />
               </div>
               <dl className="space-y-2 text-sm">
-                {[['Marca', moto.brand], ['Modello', moto.model], ['Versione', moto.version], ['Anno', moto.year], ['Cilindrata', moto.engine_cc + ' cc'], ['Motore', moto.engine_type], ['Colore', moto.color], ['Km attuali', (moto.current_mileage || 0).toLocaleString('it-IT')]].map(([k, v]) => (
+                {[['Marca', moto.brand], ['Modello', moto.model], ['Versione', moto.version], ['Anno', moto.year], ['Cilindrata', moto.engine_cc + ' cc'], ['Motore', moto.engine_type], ['Colore', moto.color]].map(([k, v]) => (
                   <div key={k} className="flex justify-between border-b border-white/5 py-2">
                     <dt className="text-neutral-500 mono uppercase text-xs">{k}</dt>
                     <dd className="font-medium">{v || '—'}</dd>
                   </div>
                 ))}
+                <div className="flex justify-between items-center border-b border-white/5 py-2">
+                  <dt className="text-neutral-500 mono uppercase text-xs">Km attuali</dt>
+                  <dd className="flex items-center gap-2">
+                    <span className="font-mono font-semibold text-base text-orange-400">{(moto.current_mileage || 0).toLocaleString('it-IT')}</span>
+                    <QuickKmUpdate current={moto.current_mileage || 0} onSave={(km) => updateMoto({ current_mileage: km })} />
+                  </dd>
+                </div>
               </dl>
               <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
                 <div>
@@ -374,6 +386,53 @@ export default function MotoPage({ params }) {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function QuickKmUpdate({ current, onSave, variant = 'inline' }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(String(current || 0));
+  useEffect(() => { setValue(String(current || 0)); }, [current, open]);
+  const save = async (e) => {
+    e.preventDefault();
+    const km = parseInt(value);
+    if (isNaN(km) || km < 0) return toast.error('Km non validi');
+    if (km < current && !confirm(`I nuovi km (${km.toLocaleString('it-IT')}) sono inferiori agli attuali (${current.toLocaleString('it-IT')}). Continuare?`)) return;
+    await onSave(km);
+    toast.success('Km aggiornati');
+    setOpen(false);
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {variant === 'hero' ? (
+          <button type="button" className="ml-1 p-1 rounded-md bg-black/50 hover:bg-orange-500/20 border border-white/10 hover:border-orange-500/40 transition" title="Aggiorna km">
+            <Pencil className="w-3 h-3 text-orange-400" />
+          </button>
+        ) : (
+          <button type="button" className="p-1.5 rounded-md hover:bg-orange-500/10 text-neutral-400 hover:text-orange-400 transition" title="Aggiorna km">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="bg-neutral-950 border-white/10 max-w-sm">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Gauge className="w-5 h-5 text-orange-400" />Aggiorna chilometraggio</DialogTitle></DialogHeader>
+        <form onSubmit={save} className="space-y-4">
+          <div>
+            <div className="text-xs text-neutral-500 mb-2">Km attuali: <span className="mono text-neutral-300">{current.toLocaleString('it-IT')}</span></div>
+            <Label>Nuovi km</Label>
+            <Input type="number" min="0" step="1" value={value} onChange={(e) => setValue(e.target.value)} placeholder="es. 15420" autoFocus className="text-2xl font-mono text-orange-400 h-14" />
+            {parseInt(value) > current && (
+              <div className="text-xs text-emerald-400 mt-2 mono">+{(parseInt(value) - current).toLocaleString('it-IT')} km percorsi</div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Annulla</Button>
+            <Button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-500">Salva</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
