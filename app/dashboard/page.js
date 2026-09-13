@@ -63,6 +63,21 @@ export default function Dashboard() {
           </Link>
         </div>
 
+        {data.motos.some(m => m.is_demo) && (
+          <Card className="metallic border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-red-600/5 p-5 mb-6 flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center shrink-0">
+              <Wrench className="w-5 h-5 text-orange-400" />
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold mb-1">Benvenuto in MotoDNA!</div>
+              <p className="text-sm text-neutral-300">Ti abbiamo precaricato una Honda VF400F di demo. Apri la moto e clicca <span className="mono text-orange-400">Modifica</span> per personalizzare marca, modello, anno, cilindrata, targa e foto — sarà pronta con il tuo MotoDNA univoco.</p>
+            </div>
+            <Link href={`/moto/${data.motos.find(m => m.is_demo).id}`}>
+              <Button size="sm" className="bg-orange-600 hover:bg-orange-500 shrink-0">Personalizza <ArrowUpRight className="w-3 h-3 ml-1" /></Button>
+            </Link>
+          </Card>
+        )}
+
         {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <StatCard icon={Gauge} label="Moto totali" value={data.motos.length} />

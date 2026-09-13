@@ -126,7 +126,7 @@ export default function MotoPage({ params }) {
                 <EditMotoDialog moto={moto} onSave={updateMoto} trigger={<Button size="sm" variant="outline"><Edit3 className="w-3 h-3 mr-1" />Modifica</Button>} />
               </div>
               <dl className="space-y-2 text-sm">
-                {[['Marca', moto.brand], ['Modello', moto.model], ['Versione', moto.version], ['Anno', moto.year], ['Cilindrata', moto.engine_cc + ' cc'], ['Motore', moto.engine_type], ['Colore', moto.color]].map(([k, v]) => (
+                {[['Marca', moto.brand], ['Modello', moto.model], ['Versione', moto.version], ['Anno', moto.year], ['Cilindrata', moto.engine_cc + ' cc'], ['Motore', moto.engine_type], ['Colore', moto.color], ['Targa 🔒', moto.plate]].map(([k, v]) => (
                   <div key={k} className="flex justify-between border-b border-white/5 py-2">
                     <dt className="text-neutral-500 mono uppercase text-xs">{k}</dt>
                     <dd className="font-medium">{v || '—'}</dd>
@@ -562,6 +562,7 @@ function EditMotoDialog({ moto, onSave, trigger }) {
       year: f.year ? parseInt(f.year) : null,
       engine_cc: f.engine_cc ? parseInt(f.engine_cc) : null,
       engine_type: f.engine_type, color: f.color,
+      plate: f.plate || '',
       current_mileage: f.current_mileage ? parseInt(f.current_mileage) : 0,
       description: f.description, main_photo: f.main_photo,
       public_profile: !!f.public_profile,
@@ -582,6 +583,7 @@ function EditMotoDialog({ moto, onSave, trigger }) {
             <div><Label>Cilindrata (cc)</Label><Input type="number" value={f.engine_cc || ''} onChange={set('engine_cc')} /></div>
             <div><Label>Tipo motore</Label><Input value={f.engine_type || ''} onChange={set('engine_type')} /></div>
             <div><Label>Colore</Label><Input value={f.color || ''} onChange={set('color')} /></div>
+            <div><Label>Targa <span className="text-neutral-500 text-xs">(privata, non visibile pubblicamente)</span></Label><Input value={f.plate || ''} onChange={set('plate')} placeholder="AB123CD" className="uppercase mono" /></div>
             <div><Label>Km attuali</Label><Input type="number" value={f.current_mileage || ''} onChange={set('current_mileage')} placeholder="15420" /></div>
           </div>
           <div><Label>Descrizione</Label><Textarea rows={4} value={f.description || ''} onChange={set('description')} /></div>

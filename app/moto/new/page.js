@@ -15,7 +15,7 @@ import ImageUploader from '@/components/ImageUploader';
 export default function NewMoto() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [f, setF] = useState({ brand: '', model: '', version: '', year: '', engine_cc: '', engine_type: '', color: '', current_mileage: '', main_photo: '', description: '' });
+  const [f, setF] = useState({ brand: '', model: '', version: '', year: '', engine_cc: '', engine_type: '', color: '', plate: '', current_mileage: '', main_photo: '', description: '' });
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
@@ -52,6 +52,7 @@ export default function NewMoto() {
               <div><Label>Cilindrata (cc)</Label><Input type="number" value={f.engine_cc} onChange={set('engine_cc')} placeholder="399" /></div>
               <div><Label>Tipo motore</Label><Input value={f.engine_type} onChange={set('engine_type')} placeholder="V4 4-tempi" /></div>
               <div><Label>Colore</Label><Input value={f.color} onChange={set('color')} placeholder="Rosso / Bianco" /></div>
+              <div><Label>Targa <span className="text-neutral-500 text-xs">(privata)</span></Label><Input value={f.plate} onChange={set('plate')} placeholder="AB123CD" className="uppercase mono" /></div>
               <div><Label>Chilometraggio</Label><Input type="number" value={f.current_mileage} onChange={set('current_mileage')} placeholder="15420" /></div>
             </div>
             <div><Label>Foto principale</Label><ImageUploader label="Carica foto della moto" currentUrl={f.main_photo} onUploaded={(u) => setF({ ...f, main_photo: u.url })} /></div>

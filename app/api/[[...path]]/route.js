@@ -115,7 +115,12 @@ async function handler(request, { params }) {
       const moto = await db.collection('motorcycles').findOne({ public_id: publicId }, { projection: { _id: 0 } });
       if (!moto) return json({ error: 'Moto non trovata' }, 404);
       if (!moto.public_profile) return json({ error: 'Profilo privato' }, 403);
-      const owner = await db.collection('users').findOne({ id: moto.owner_id }, { projection: { username: 1, first_name: 1, profile_photo: 1, _id: 0 } });
+      const ownerId = moto.owner_id;
+      // Strip private fields before exposing to public
+      delete moto.plate;
+      delete moto.owner_id;
+      delete moto.is_demo;
+      const owner = await db.collection('users').findOne({ id: ownerId }, { projection: { username: 1, first_name: 1, profile_photo: 1, _id: 0 } });
       const maintenance = await db.collection('maintenance').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0, currency: 0 } }).sort({ date: -1 }).limit(50).toArray();
       const timeline = await db.collection('timeline').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0 } }).sort({ event_date: -1 }).limit(50).toArray();
       const modifications = await db.collection('modifications').find({ motorcycle_id: moto.id, is_public: true }, { projection: { _id: 0, cost: 0 } }).sort({ installation_date: -1 }).limit(50).toArray();
@@ -427,6 +432,7 @@ async function handler(request, { params }) {
         brand: body.brand || '', model: body.model || '', version: body.version || '',
         year: parseInt(body.year) || null, engine_cc: parseInt(body.engine_cc) || null,
         engine_type: body.engine_type || '', color: body.color || '',
+        plate: (body.plate || '').toUpperCase().trim(),
         current_mileage: parseInt(body.current_mileage) || 0,
         main_photo: body.main_photo || null,
         description: body.description || '',
@@ -460,8 +466,11 @@ async function handler(request, { params }) {
     if (p[0] === 'motorcycles' && p[1] && !p[2] && method === 'PUT') {
       const body = await request.json();
       const updates = {};
-      const fields = ['brand','model','version','year','engine_cc','engine_type','color','current_mileage','main_photo','description','public_profile','status'];
-      for (const f of fields) if (f in body) updates[f] = body[f];
+      const fields = ['brand','model','version','year','engine_cc','engine_type','color','plate','current_mileage','main_photo','description','public_profile','status'];
+      for (const f of fields) if (f in body) {
+        if (f === 'plate') updates[f] = (body[f] || '').toUpperCase().trim();
+        else updates[f] = body[f];
+      }
       updates.updated_at = new Date();
       await db.collection('motorcycles').updateOne({ id: p[1], owner_id: userId }, { $set: updates });
       const moto = await db.collection('motorcycles').findOne({ id: p[1] }, { projection: { _id: 0 } });
