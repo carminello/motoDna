@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
@@ -12,7 +12,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera } from 'lucide-react';
+import Logo from '@/components/Logo';
+import ImageUploader from '@/components/ImageUploader';
 
 const MAINT_TYPES = ['ENGINE','OIL','FILTER','BRAKES','TYRES','CHAIN','BATTERY','ELECTRICAL','SUSPENSION','CARBURATION','COOLING','EXHAUST','BODYWORK','OTHER'];
 const EVENT_TYPES = ['PURCHASE','RESTORATION','MAINTENANCE','MODIFICATION','ACCIDENT','TRIP','RACE','MEETUP','MILESTONE','OTHER'];
@@ -50,11 +52,17 @@ export default function MotoPage({ params }) {
     if (res.ok) { toast.success('Nuovo tag NFC generato'); load(); }
   };
 
+  const updateMoto = async (patch) => {
+    const res = await fetch(`/api/motorcycles/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    if (res.ok) { toast.success('Aggiornato'); load(); }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white pb-32">
       <header className="border-b border-white/5 sticky top-0 bg-black/70 backdrop-blur z-40">
         <div className="max-w-6xl mx-auto px-5 py-3 flex items-center gap-3">
           <Link href="/dashboard"><Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4" /></Button></Link>
+          <Logo size={26} />
           <div className="flex-1">
             <div className="text-xs mono text-neutral-500 uppercase">{moto.brand}</div>
             <div className="font-bold tracking-tight leading-none">{moto.model}</div>
@@ -66,9 +74,10 @@ export default function MotoPage({ params }) {
       </header>
 
       {/* Hero */}
-      <div className="relative h-64 md:h-80 overflow-hidden">
+      <div className="relative h-64 md:h-80 overflow-hidden group">
         {moto.main_photo && <img src={moto.main_photo} className="w-full h-full object-cover" alt={moto.model} />}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+        <ChangeMainPhoto currentUrl={moto.main_photo} onChange={(url) => updateMoto({ main_photo: url })} />
         <div className="absolute bottom-0 left-0 right-0 max-w-6xl mx-auto px-5 pb-6">
           <Badge className="bg-black/70 mono border-white/20 mb-2">{moto.public_id}</Badge>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">{moto.brand} {moto.model}</h1>
@@ -196,7 +205,7 @@ export default function MotoPage({ params }) {
           <TabsContent value="gallery" className="mt-6">
             <SectionHeader title="Galleria">
               <AddDialog title="Aggiungi foto" onSubmit={(v) => post('gallery', v)} fields={[
-                { name: 'file_url', label: 'URL immagine', required: true, placeholder: 'https://...' },
+                { name: 'file_url', label: 'Immagine', required: true, type: 'upload' },
                 { name: 'caption', label: 'Didascalia' },
                 { name: 'category', label: 'Categoria', type: 'select', options: ['PROFILE','RESTORATION','MAINTENANCE','MODIFICATION','TRIP','MEETUP','BEFORE_AFTER','OTHER'] },
               ]} />
@@ -217,7 +226,7 @@ export default function MotoPage({ params }) {
               <AddDialog title="Aggiungi documento" onSubmit={(v) => post('documents', v)} fields={[
                 { name: 'title', label: 'Titolo', required: true },
                 { name: 'document_type', label: 'Tipo', type: 'select', options: DOC_TYPES },
-                { name: 'file_url', label: 'URL file' },
+                { name: 'file_url', label: 'File (PDF o immagine)', type: 'upload', accept: 'image/*,application/pdf' },
                 { name: 'document_date', label: 'Data', type: 'date' },
               ]} />
             </SectionHeader>
@@ -266,6 +275,31 @@ export default function MotoPage({ params }) {
   );
 }
 
+function ChangeMainPhoto({ currentUrl, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+  const handle = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/uploads', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      onChange(data.url);
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={e => handle(e.target.files?.[0])} />
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="absolute top-3 right-3 z-10 bg-black/70 backdrop-blur border border-white/20 hover:border-orange-500/50 rounded-lg px-3 py-2 text-xs flex items-center gap-1 transition">
+        <Camera className="w-3 h-3" /> {busy ? 'Caricamento...' : 'Cambia foto'}
+      </button>
+    </>
+  );
+}
+
 function SectionHeader({ title, children }) {
   return (
     <div className="flex items-center justify-between mb-4">
@@ -292,7 +326,9 @@ function AddDialog({ title, onSubmit, fields }) {
           {fields.map(f => (
             <div key={f.name}>
               <Label>{f.label}{f.required && ' *'}</Label>
-              {f.type === 'textarea' ? (
+              {f.type === 'upload' ? (
+                <ImageUploader accept={f.accept || 'image/*'} label="Carica" currentUrl={values[f.name]} onUploaded={(u) => setValues({ ...values, [f.name]: u.url })} />
+              ) : f.type === 'textarea' ? (
                 <Textarea value={values[f.name] || ''} onChange={e => setValues({ ...values, [f.name]: e.target.value })} rows={3} />
               ) : f.type === 'select' ? (
                 <Select value={values[f.name] || ''} onValueChange={(v) => setValues({ ...values, [f.name]: v })}>

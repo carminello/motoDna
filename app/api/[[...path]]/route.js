@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
+import { ObjectId, GridFSBucket } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
 import { hashPassword, verifyPassword, signToken, getUserFromRequest } from '@/lib/auth';
 import { generatePublicId, generateTagUid, generatePublicToken } from '@/lib/publicId';
 import { seedDemoForUser } from '@/lib/seedDemo';
 
+export const runtime = 'nodejs';
+
 const json = (data, status = 200) => NextResponse.json(data, { status });
+
+async function getBucket() {
+  const db = await getDb();
+  return new GridFSBucket(db, { bucketName: 'uploads' });
+}
 
 function setAuthCookie(response, token) {
   response.cookies.set('motodna_token', token, {
@@ -23,6 +31,33 @@ async function handler(request, { params }) {
 
   try {
     const db = await getDb();
+
+    // ============== FILES (public GET) ==============
+    if (p[0] === 'files' && p[1] && method === 'GET') {
+      const idStr = p[1].split('.')[0]; // strip extension if any
+      if (!ObjectId.isValid(idStr)) return new NextResponse('Not found', { status: 404 });
+      const bucket = await getBucket();
+      const fileId = new ObjectId(idStr);
+      const files = await bucket.find({ _id: fileId }).toArray();
+      if (!files[0]) return new NextResponse('Not found', { status: 404 });
+      const file = files[0];
+      const stream = bucket.openDownloadStream(fileId);
+      const webStream = new ReadableStream({
+        start(controller) {
+          stream.on('data', (chunk) => controller.enqueue(new Uint8Array(chunk)));
+          stream.on('end', () => controller.close());
+          stream.on('error', (err) => controller.error(err));
+        },
+        cancel() { stream.destroy(); },
+      });
+      return new NextResponse(webStream, {
+        headers: {
+          'Content-Type': file.contentType || 'application/octet-stream',
+          'Content-Length': String(file.length),
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+    }
 
     // ============== AUTH ==============
     if (path === '/auth/register' && method === 'POST') {
@@ -95,6 +130,45 @@ async function handler(request, { params }) {
     const auth = await getUserFromRequest(request);
     if (!auth) return json({ error: 'Non autorizzato' }, 401);
     const userId = auth.sub;
+
+    // Upload endpoint
+    if (path === '/uploads' && method === 'POST') {
+      const contentType = request.headers.get('content-type') || '';
+      const MAX = 10 * 1024 * 1024;
+      const ALLOWED = new Set(['image/jpeg','image/png','image/webp','image/avif','image/gif','application/pdf']);
+      let bytes, ctype, originalName;
+      if (contentType.includes('multipart/form-data')) {
+        const form = await request.formData();
+        const entry = form.get('file');
+        if (!entry || typeof entry === 'string') return json({ error: 'file richiesto' }, 400);
+        bytes = Buffer.from(await entry.arrayBuffer());
+        ctype = entry.type || 'application/octet-stream';
+        originalName = entry.name || 'file';
+      } else if (contentType.includes('application/json')) {
+        const body = await request.json();
+        const m = /^data:([^;]+);base64,(.+)$/.exec(body.data || '');
+        if (!m) return json({ error: 'data URL richiesto' }, 400);
+        ctype = m[1];
+        bytes = Buffer.from(m[2], 'base64');
+        originalName = body.filename || `upload-${uuidv4()}`;
+      } else {
+        return json({ error: 'Content-Type non supportato' }, 400);
+      }
+      if (!bytes.length) return json({ error: 'File vuoto' }, 400);
+      if (bytes.length > MAX) return json({ error: 'File troppo grande (max 10MB)' }, 413);
+      if (!ALLOWED.has(ctype)) return json({ error: 'Formato non supportato' }, 400);
+      const bucket = await getBucket();
+      const id = new ObjectId();
+      const safeName = String(originalName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      await new Promise((resolve, reject) => {
+        const stream = bucket.openUploadStreamWithId(id, safeName, { contentType: ctype, metadata: { uploaded_by: userId } });
+        stream.on('finish', resolve);
+        stream.on('error', reject);
+        stream.end(bytes);
+      });
+      const url = `/api/files/${id.toHexString()}`;
+      return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length }, 201);
+    }
 
     if (path === '/dashboard' && method === 'GET') {
       const motos = await db.collection('motorcycles').find({ owner_id: userId }, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray();

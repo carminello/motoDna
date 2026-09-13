@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Cpu, Wifi, Gauge, Calendar, Wrench, Sparkles, Image as ImgIcon, MapPin, Zap, ShieldCheck, ChevronRight } from 'lucide-react';
+import Logo from '@/components/Logo';
 
 export default function PublicProfile({ params }) {
   const { public_id } = use(params);
@@ -41,7 +42,7 @@ export default function PublicProfile({ params }) {
       <div className="border-b border-white/5 bg-black/80 backdrop-blur sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-5 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center"><Cpu className="w-4 h-4" /></div>
+            <Logo size={28} />
             <span className="font-bold text-sm">MotoDNA</span>
           </div>
           <a href="/" className="text-xs mono text-neutral-500 hover:text-white">CREA IL TUO →</a>

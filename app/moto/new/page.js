@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { ArrowLeft, Cpu } from 'lucide-react';
+import Logo from '@/components/Logo';
+import ImageUploader from '@/components/ImageUploader';
 
 export default function NewMoto() {
   const router = useRouter();
@@ -34,7 +36,7 @@ export default function NewMoto() {
       <header className="border-b border-white/5 sticky top-0 bg-black/70 backdrop-blur z-40">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <Link href="/dashboard"><Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4" /></Button></Link>
-          <div className="flex items-center gap-2"><Cpu className="w-5 h-5 text-orange-400" /><span className="font-bold">Nuova moto</span></div>
+          <div className="flex items-center gap-2"><Logo size={28} /><span className="font-bold">Nuova moto</span></div>
         </div>
       </header>
       <div className="max-w-3xl mx-auto px-5 py-8">
@@ -52,7 +54,7 @@ export default function NewMoto() {
               <div><Label>Colore</Label><Input value={f.color} onChange={set('color')} placeholder="Rosso / Bianco" /></div>
               <div><Label>Chilometraggio</Label><Input type="number" value={f.current_mileage} onChange={set('current_mileage')} placeholder="15420" /></div>
             </div>
-            <div><Label>URL foto principale</Label><Input value={f.main_photo} onChange={set('main_photo')} placeholder="https://..." /></div>
+            <div><Label>Foto principale</Label><ImageUploader label="Carica foto della moto" currentUrl={f.main_photo} onUploaded={(u) => setF({ ...f, main_photo: u.url })} /></div>
             <div><Label>Descrizione</Label><Textarea value={f.description} onChange={set('description')} rows={4} /></div>
             <Button type="submit" disabled={loading} className="w-full bg-orange-600 hover:bg-orange-500">{loading ? 'Creazione...' : 'Crea moto + genera MotoDNA'}</Button>
           </form>

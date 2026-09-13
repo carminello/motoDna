@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Gauge, Plus, Wifi, Wrench, Calendar, Bell, LogOut, Cpu, ArrowUpRight } from 'lucide-react';
+import Logo from '@/components/Logo';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function Dashboard() {
       <header className="sticky top-0 z-40 backdrop-blur bg-black/70 border-b border-white/5">
         <div className="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center"><Cpu className="w-4 h-4" /></div>
+            <Logo size={32} />
             <span className="font-bold tracking-tight">MotoDNA</span>
           </Link>
           <div className="flex items-center gap-3">

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Wifi, Cpu, Zap, ShieldCheck, ArrowRight } from 'lucide-react';
+import Logo from '@/components/Logo';
 
 export default function Landing() {
   const router = useRouter();
@@ -44,9 +45,7 @@ export default function Landing() {
       <nav className="border-b border-white/5 backdrop-blur bg-black/60 sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
-              <Cpu className="w-5 h-5" />
-            </div>
+            <Logo size={40} />
             <div>
               <div className="font-bold tracking-tight text-lg leading-none">MotoDNA</div>
               <div className="text-[10px] mono text-neutral-500 uppercase">Digital Identity</div>
