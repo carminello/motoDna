@@ -12,7 +12,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
 
@@ -45,6 +46,17 @@ export default function MotoPage({ params }) {
     toast.success('Aggiunto');
     load();
     return j.item;
+  };
+
+  const del = async (kind, itemId) => {
+    if (!confirm('Eliminare definitivamente questo elemento?')) return;
+    const res = await fetch(`/api/motorcycles/${id}/${kind}/${itemId}`, { method: 'DELETE' });
+    if (res.ok) { toast.success('Eliminato'); load(); }
+  };
+
+  const patch = async (kind, itemId, updates) => {
+    const res = await fetch(`/api/motorcycles/${id}/${kind}/${itemId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+    if (res.ok) { load(); }
   };
 
   const regenNfc = async () => {
@@ -101,7 +113,10 @@ export default function MotoPage({ params }) {
 
           <TabsContent value="overview" className="mt-6 grid md:grid-cols-2 gap-4">
             <Card className="metallic p-6">
-              <h3 className="text-lg font-semibold mb-4">Scheda tecnica</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Scheda tecnica</h3>
+                <EditMotoDialog moto={moto} onSave={updateMoto} trigger={<Button size="sm" variant="outline"><Edit3 className="w-3 h-3 mr-1" />Modifica</Button>} />
+              </div>
               <dl className="space-y-2 text-sm">
                 {[['Marca', moto.brand], ['Modello', moto.model], ['Versione', moto.version], ['Anno', moto.year], ['Cilindrata', moto.engine_cc + ' cc'], ['Motore', moto.engine_type], ['Colore', moto.color], ['Km attuali', (moto.current_mileage || 0).toLocaleString('it-IT')]].map(([k, v]) => (
                   <div key={k} className="flex justify-between border-b border-white/5 py-2">
@@ -110,6 +125,13 @@ export default function MotoPage({ params }) {
                   </div>
                 ))}
               </dl>
+              <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                <div>
+                  <div className="text-xs mono uppercase text-neutral-500">Profilo pubblico</div>
+                  <div className="text-xs text-neutral-400">{moto.public_profile ? 'Visibile a chi scansiona il tag NFC' : 'Nascosto - solo tu vedi la moto'}</div>
+                </div>
+                <Switch checked={moto.public_profile} onCheckedChange={(v) => updateMoto({ public_profile: v })} />
+              </div>
             </Card>
             <div className="space-y-4">
               <Card className="metallic p-6">
@@ -141,13 +163,13 @@ export default function MotoPage({ params }) {
             </SectionHeader>
             <div className="space-y-3">
               {maintenance.map(m => (
-                <Card key={m.id} className="metallic p-4 flex items-center justify-between">
-                  <div>
+                <Card key={m.id} className="metallic p-4 flex items-center justify-between gap-3">
+                  <div className="flex-1">
                     <div className="flex items-center gap-2"><Badge variant="outline" className="mono text-[10px]">{m.service_type}</Badge><span className="font-semibold">{m.title}</span></div>
                     <div className="text-sm text-neutral-400 mt-1">{m.description}</div>
                     <div className="text-xs mono text-neutral-500 mt-2">{new Date(m.date).toLocaleDateString('it-IT')} · {(m.mileage || 0).toLocaleString('it-IT')} km · €{m.cost}</div>
                   </div>
-                  {m.verified && <Badge className="bg-emerald-500/20 text-emerald-400">✓ Certificato</Badge>}
+                  <ItemActions isPublic={m.is_public} onToggle={(v) => patch('maintenance', m.id, { is_public: v })} onDelete={() => del('maintenance', m.id)} />
                 </Card>
               ))}
             </div>
@@ -168,9 +190,14 @@ export default function MotoPage({ params }) {
                 <div key={t.id} className="relative">
                   <div className="absolute -left-[41px] w-4 h-4 rounded-full bg-orange-500 border-4 border-black" />
                   <Card className="metallic p-4">
-                    <div className="flex items-center gap-2 mb-1"><Badge variant="outline" className="mono text-[10px]">{t.event_type}</Badge><span className="text-xs text-neutral-500 mono">{new Date(t.event_date).toLocaleDateString('it-IT')}</span></div>
-                    <div className="font-semibold">{t.title}</div>
-                    <div className="text-sm text-neutral-400 mt-1">{t.description}</div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1"><Badge variant="outline" className="mono text-[10px]">{t.event_type}</Badge><span className="text-xs text-neutral-500 mono">{new Date(t.event_date).toLocaleDateString('it-IT')}</span></div>
+                        <div className="font-semibold">{t.title}</div>
+                        <div className="text-sm text-neutral-400 mt-1">{t.description}</div>
+                      </div>
+                      <ItemActions isPublic={t.is_public} onToggle={(v) => patch('timeline', t.id, { is_public: v })} onDelete={() => del('timeline', t.id)} />
+                    </div>
                   </Card>
                 </div>
               ))}
@@ -193,10 +220,15 @@ export default function MotoPage({ params }) {
             <div className="grid md:grid-cols-2 gap-3">
               {modifications.map(m => (
                 <Card key={m.id} className="metallic p-4">
-                  <Badge variant="outline" className="mono text-[10px] mb-2">{m.category}</Badge>
-                  <div className="font-semibold">{m.name}</div>
-                  <div className="text-xs text-neutral-500 mono mb-2">{m.brand} {m.model}</div>
-                  <div className="text-sm text-neutral-400">{m.description}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <Badge variant="outline" className="mono text-[10px] mb-2">{m.category}</Badge>
+                      <div className="font-semibold">{m.name}</div>
+                      <div className="text-xs text-neutral-500 mono mb-2">{m.brand} {m.model}</div>
+                      <div className="text-sm text-neutral-400">{m.description}</div>
+                    </div>
+                    <ItemActions isPublic={m.is_public} onToggle={(v) => patch('modifications', m.id, { is_public: v })} onDelete={() => del('modifications', m.id)} />
+                  </div>
                 </Card>
               ))}
             </div>
@@ -215,6 +247,15 @@ export default function MotoPage({ params }) {
                 <div key={g.id} className="relative aspect-square rounded-xl overflow-hidden bg-neutral-900 group">
                   <img src={g.file_url} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" alt={g.caption} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={() => patch('gallery', g.id, { is_public: !g.is_public })} className="p-1.5 rounded-md bg-black/70 hover:bg-black text-white" title={g.is_public ? 'Rendi privata' : 'Rendi pubblica'}>
+                      {g.is_public ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-neutral-400" />}
+                    </button>
+                    <button onClick={() => del('gallery', g.id)} className="p-1.5 rounded-md bg-red-600/90 hover:bg-red-500 text-white" title="Elimina">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {!g.is_public && <Badge className="absolute top-2 left-2 bg-black/70 text-neutral-400 text-[10px]"><EyeOff className="w-2.5 h-2.5 mr-1" />PRIVATA</Badge>}
                   <div className="absolute bottom-2 left-2 text-xs text-white">{g.caption}</div>
                 </div>
               ))}
@@ -233,9 +274,13 @@ export default function MotoPage({ params }) {
             <div className="space-y-2">
               {documents.length === 0 && <p className="text-sm text-neutral-500">Nessun documento caricato. I documenti sono privati per default.</p>}
               {documents.map(d => (
-                <Card key={d.id} className="metallic p-3 flex items-center justify-between">
-                  <div><Badge variant="outline" className="mono text-[10px] mr-2">{d.document_type}</Badge><span className="font-medium">{d.title}</span></div>
-                  <span className="text-xs text-neutral-500 mono">{d.document_date ? new Date(d.document_date).toLocaleDateString('it-IT') : ''}</span>
+                <Card key={d.id} className="metallic p-3 flex items-center justify-between gap-3">
+                  <div className="flex-1"><Badge variant="outline" className="mono text-[10px] mr-2">{d.document_type}</Badge><span className="font-medium">{d.title}</span></div>
+                  <div className="flex items-center gap-2">
+                    {d.file_url && <a href={d.file_url} target="_blank" rel="noopener" className="text-xs text-orange-400 hover:underline">Apri</a>}
+                    <span className="text-xs text-neutral-500 mono">{d.document_date ? new Date(d.document_date).toLocaleDateString('it-IT') : ''}</span>
+                    <ItemActions isPublic={d.is_public} onToggle={(v) => patch('documents', d.id, { is_public: v })} onDelete={() => del('documents', d.id)} />
+                  </div>
                 </Card>
               ))}
             </div>
@@ -272,6 +317,72 @@ export default function MotoPage({ params }) {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function ItemActions({ isPublic, onToggle, onDelete }) {
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <button onClick={() => onToggle(!isPublic)} className="p-1.5 rounded-md hover:bg-white/5 text-neutral-400 hover:text-white transition" title={isPublic ? 'Pubblico - clic per privato' : 'Privato - clic per pubblico'}>
+        {isPublic ? <Eye className="w-4 h-4 text-emerald-400" /> : <EyeOff className="w-4 h-4" />}
+      </button>
+      <button onClick={onDelete} className="p-1.5 rounded-md hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition" title="Elimina">
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function EditMotoDialog({ moto, onSave, trigger }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(moto);
+  useEffect(() => { setF(moto); }, [moto]);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async (e) => {
+    e.preventDefault();
+    await onSave({
+      brand: f.brand, model: f.model, version: f.version,
+      year: f.year ? parseInt(f.year) : null,
+      engine_cc: f.engine_cc ? parseInt(f.engine_cc) : null,
+      engine_type: f.engine_type, color: f.color,
+      current_mileage: f.current_mileage ? parseInt(f.current_mileage) : 0,
+      description: f.description, main_photo: f.main_photo,
+      public_profile: !!f.public_profile,
+    });
+    setOpen(false);
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger || <Button size="sm" variant="outline"><Settings className="w-3 h-3 mr-1" />Modifica</Button>}</DialogTrigger>
+      <DialogContent className="bg-neutral-950 border-white/10 max-w-2xl">
+        <DialogHeader><DialogTitle>Modifica dati moto</DialogTitle></DialogHeader>
+        <form onSubmit={save} className="space-y-3 max-h-[75vh] overflow-y-auto pr-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Marca</Label><Input value={f.brand || ''} onChange={set('brand')} /></div>
+            <div><Label>Modello</Label><Input value={f.model || ''} onChange={set('model')} /></div>
+            <div><Label>Versione</Label><Input value={f.version || ''} onChange={set('version')} /></div>
+            <div><Label>Anno</Label><Input type="number" value={f.year || ''} onChange={set('year')} /></div>
+            <div><Label>Cilindrata (cc)</Label><Input type="number" value={f.engine_cc || ''} onChange={set('engine_cc')} /></div>
+            <div><Label>Tipo motore</Label><Input value={f.engine_type || ''} onChange={set('engine_type')} /></div>
+            <div><Label>Colore</Label><Input value={f.color || ''} onChange={set('color')} /></div>
+            <div><Label>Km attuali</Label><Input type="number" value={f.current_mileage || ''} onChange={set('current_mileage')} placeholder="15420" /></div>
+          </div>
+          <div><Label>Descrizione</Label><Textarea rows={4} value={f.description || ''} onChange={set('description')} /></div>
+          <div><Label>Foto principale</Label><ImageUploader currentUrl={f.main_photo} onUploaded={(u) => setF({ ...f, main_photo: u.url })} /></div>
+          <div className="flex items-center justify-between p-3 rounded-lg bg-neutral-900/50">
+            <div>
+              <div className="font-medium">Profilo pubblico</div>
+              <div className="text-xs text-neutral-500">Se disattivato, chi scansiona il tag NFC non potrà vedere la moto</div>
+            </div>
+            <Switch checked={!!f.public_profile} onCheckedChange={(v) => setF({ ...f, public_profile: v })} />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Annulla</Button>
+            <Button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-500">Salva modifiche</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

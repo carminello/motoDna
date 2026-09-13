@@ -273,6 +273,34 @@ async function handler(request, { params }) {
       return json({ nfc: tag });
     }
 
+    // PATCH sub-item (edit is_public etc)
+    if (p[0] === 'motorcycles' && p[1] && p[2] && p[3] && (method === 'PATCH' || method === 'PUT')) {
+      const kind = p[2];
+      const valid = ['maintenance','timeline','modifications','gallery','documents','reminders'];
+      if (!valid.includes(kind)) return json({ error: 'Risorsa sconosciuta' }, 400);
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      const body = await request.json();
+      const allowed = {
+        maintenance: ['title','description','date','mileage','cost','currency','service_type','is_public'],
+        timeline: ['title','description','event_date','mileage','event_type','is_public'],
+        modifications: ['name','brand','model','description','installation_date','installation_mileage','cost','category','is_public'],
+        gallery: ['caption','category','is_cover','is_public'],
+        documents: ['title','document_type','document_date','is_public'],
+        reminders: ['title','description','target_date','target_mileage','repeat_interval_km','repeat_interval_months','status'],
+      };
+      const updates = {};
+      for (const f of allowed[kind]) if (f in body) updates[f] = body[f];
+      if ('date' in updates && updates.date) updates.date = new Date(updates.date);
+      if ('event_date' in updates && updates.event_date) updates.event_date = new Date(updates.event_date);
+      if ('installation_date' in updates && updates.installation_date) updates.installation_date = new Date(updates.installation_date);
+      if ('document_date' in updates && updates.document_date) updates.document_date = new Date(updates.document_date);
+      if ('target_date' in updates && updates.target_date) updates.target_date = new Date(updates.target_date);
+      await db.collection(kind).updateOne({ id: p[3], motorcycle_id: p[1] }, { $set: updates });
+      const item = await db.collection(kind).findOne({ id: p[3] }, { projection: { _id: 0 } });
+      return json({ item });
+    }
+
     if (p[0] === 'motorcycles' && p[1] && p[2] && p[3] && method === 'DELETE') {
       const kind = p[2];
       const valid = ['maintenance','timeline','modifications','gallery','documents','reminders'];
