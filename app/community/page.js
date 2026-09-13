@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Search, MessageSquare, Users, Bike, MapPin } from 'lucide-react';
+import { ArrowLeft, Search, MessageSquare, Users, Bike, MapPin, ExternalLink } from 'lucide-react';
 import Logo from '@/components/Logo';
 
 export default function CommunityPage() {
@@ -14,13 +14,23 @@ export default function CommunityPage() {
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
   const [me, setMe] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const load = async (query = '') => {
-    const url = query ? `/api/community/users?q=${encodeURIComponent(query)}` : '/api/community/users';
-    const res = await fetch(url);
-    if (res.status === 401) return router.push('/');
-    const data = await res.json();
-    setUsers(data.users || []);
+    setError(null);
+    try {
+      const url = query ? `/api/community/users?q=${encodeURIComponent(query)}` : '/api/community/users';
+      const res = await fetch(url);
+      if (res.status === 401) return router.push('/');
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else setUsers(data.users || []);
+    } catch (e) {
+      setError('Errore di rete');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -59,47 +69,78 @@ export default function CommunityPage() {
 
         <div className="flex items-center gap-2 mb-4 text-sm text-neutral-500">
           <Users className="w-4 h-4" />
-          <span>{users.length} utenti</span>
+          <span>{users.length} {users.length === 1 ? 'utente' : 'utenti'}</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {users.map(u => (
-            <Card key={u.id} className="metallic overflow-hidden group hover:border-orange-500/40 transition">
-              {u.sample_photo ? (
-                <div className="relative h-32 overflow-hidden">
-                  <img src={u.sample_photo} alt="" className="w-full h-full object-cover opacity-60 group-hover:opacity-80 group-hover:scale-105 transition duration-500" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/50 to-transparent" />
-                  {u.sample_model && <Badge className="absolute top-2 right-2 bg-black/70 border-white/20 mono text-[10px]">{u.sample_model}</Badge>}
-                </div>
-              ) : (
-                <div className="h-32 bg-gradient-to-br from-neutral-900 to-black flex items-center justify-center opacity-50">
-                  <Bike className="w-12 h-12 text-neutral-700" />
-                </div>
-              )}
-              <div className="p-4 -mt-8 relative">
-                <div className="w-14 h-14 rounded-full bg-neutral-800 border-4 border-neutral-950 flex items-center justify-center overflow-hidden mb-3">
-                  {u.profile_photo ? <img src={u.profile_photo} alt={u.username} className="w-full h-full object-cover" /> : <Users className="w-6 h-6 text-neutral-500" />}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="font-semibold">{u.first_name || u.username}</div>
-                  {u.is_self && <Badge className="bg-orange-500/20 text-orange-400 text-[10px]">Tu</Badge>}
-                </div>
-                <div className="text-xs text-neutral-500 mono">@{u.username}</div>
-                <div className="flex items-center gap-3 mt-3 text-xs text-neutral-400">
-                  <span className="flex items-center gap-1"><Bike className="w-3 h-3" />{u.bike_count} {u.bike_count === 1 ? 'moto' : 'moto'}</span>
-                  {u.country && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{u.country}</span>}
-                </div>
-                {!u.is_self && (
-                  <Link href={`/messages/${u.id}`}>
-                    <Button size="sm" className="w-full mt-3 bg-orange-600 hover:bg-orange-500"><MessageSquare className="w-3 h-3 mr-1" />Messaggio</Button>
-                  </Link>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-        {users.length === 0 && (
+        {error && (
+          <Card className="metallic p-6 border-red-500/30 mb-4 text-sm text-red-400">Errore: {error}</Card>
+        )}
+
+        {loading ? (
+          <div className="text-center py-16 text-neutral-500 text-sm">Caricamento...</div>
+        ) : users.length === 0 ? (
           <div className="text-center py-16 text-neutral-500 text-sm">Nessun utente trovato</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {users.map(u => (
+              <Card key={u.id} className="metallic overflow-hidden group hover:border-orange-500/40 transition flex flex-col">
+                {/* Cover image - prominent */}
+                <div className="relative h-52 overflow-hidden bg-neutral-900">
+                  {u.sample_photo ? (
+                    <img src={u.sample_photo} alt={u.sample_model || 'moto'} className="w-full h-full object-cover group-hover:scale-105 transition duration-700" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center">
+                      <Bike className="w-16 h-16 text-neutral-800" strokeWidth={1} />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
+                  {u.sample_public_id && (
+                    <Badge className="absolute top-3 left-3 bg-black/70 backdrop-blur border-white/20 mono text-[10px]">{u.sample_public_id}</Badge>
+                  )}
+                  {u.is_self && (
+                    <Badge className="absolute top-3 right-3 bg-orange-500 text-white text-[10px]">Tu</Badge>
+                  )}
+                  {u.sample_brand && u.sample_model && (
+                    <div className="absolute bottom-3 left-3 right-3">
+                      <div className="text-[10px] mono uppercase text-neutral-300">{u.sample_brand}</div>
+                      <div className="text-lg font-bold text-white leading-tight">{u.sample_model} {u.sample_year && <span className="text-neutral-400 font-normal mono text-sm">· {u.sample_year}</span>}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* User info */}
+                <div className="p-4 flex-1 flex flex-col">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-neutral-800 border-2 border-neutral-950 flex items-center justify-center overflow-hidden shrink-0">
+                      {u.profile_photo ? <img src={u.profile_photo} alt={u.username} className="w-full h-full object-cover" /> : <Users className="w-5 h-5 text-neutral-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold truncate">{u.first_name || u.username}</div>
+                      <div className="text-xs text-neutral-500 mono truncate">@{u.username}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 mt-3 text-xs text-neutral-400">
+                    <span className="flex items-center gap-1"><Bike className="w-3 h-3" />{u.bike_count} moto</span>
+                    {u.country && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{u.country}</span>}
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    {u.sample_public_id && (
+                      <a href={`/m/${u.sample_public_id}`} target="_blank" rel="noopener" className="flex-1">
+                        <Button size="sm" variant="outline" className="w-full"><ExternalLink className="w-3 h-3 mr-1" />Profilo</Button>
+                      </a>
+                    )}
+                    {!u.is_self && (
+                      <Link href={`/messages/${u.id}`} className="flex-1">
+                        <Button size="sm" className="w-full bg-orange-600 hover:bg-orange-500"><MessageSquare className="w-3 h-3 mr-1" />Scrivi</Button>
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
         )}
       </div>
     </div>

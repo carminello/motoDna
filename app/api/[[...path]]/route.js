@@ -297,22 +297,43 @@ async function handler(request, { params }) {
       const users = await db.collection('users').find(filter, {
         projection: { _id: 0, id: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, country: 1, created_at: 1 }
       }).limit(100).toArray();
-      // Get bike counts for these users
       const ids = users.map(u => u.id);
-      const bikeAgg = await db.collection('motorcycles').aggregate([
+
+      // Per-user pick the best cover bike: prefer public + has photo, then most recent
+      const bikeAgg = ids.length ? await db.collection('motorcycles').aggregate([
         { $match: { owner_id: { $in: ids } } },
-        { $group: { _id: '$owner_id', count: { $sum: 1 }, sample_photo: { $first: '$main_photo' }, sample_model: { $first: '$model' } } }
-      ]).toArray();
+        { $addFields: {
+          _has_photo: { $cond: [{ $and: [{ $ne: ['$main_photo', null] }, { $ne: ['$main_photo', ''] }] }, 1, 0] },
+          _is_public: { $cond: [{ $eq: ['$public_profile', true] }, 1, 0] },
+        } },
+        { $sort: { _is_public: -1, _has_photo: -1, created_at: -1 } },
+        { $group: {
+          _id: '$owner_id',
+          count: { $sum: 1 },
+          sample_photo: { $first: '$main_photo' },
+          sample_model: { $first: '$model' },
+          sample_brand: { $first: '$brand' },
+          sample_public_id: { $first: '$public_id' },
+          sample_year: { $first: '$year' },
+        } },
+      ]).toArray() : [];
       const bikeMap = Object.fromEntries(bikeAgg.map(b => [b._id, b]));
       const enriched = users.map(u => ({
         ...u,
         bike_count: bikeMap[u.id]?.count || 0,
         sample_photo: bikeMap[u.id]?.sample_photo || null,
         sample_model: bikeMap[u.id]?.sample_model || null,
+        sample_brand: bikeMap[u.id]?.sample_brand || null,
+        sample_public_id: bikeMap[u.id]?.sample_public_id || null,
+        sample_year: bikeMap[u.id]?.sample_year || null,
         is_self: u.id === userId,
       }));
-      // Sort: with bikes first, self last-ish (still show)
-      enriched.sort((a, b) => (b.bike_count - a.bike_count));
+      enriched.sort((a, b) => {
+        // With photo first, then more bikes, then self last
+        const scoreA = (a.sample_photo ? 100 : 0) + a.bike_count - (a.is_self ? 1000 : 0);
+        const scoreB = (b.sample_photo ? 100 : 0) + b.bike_count - (b.is_self ? 1000 : 0);
+        return scoreB - scoreA;
+      });
       return json({ users: enriched });
     }
 
