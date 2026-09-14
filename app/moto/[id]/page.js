@@ -19,6 +19,7 @@ import ImageUploader from '@/components/ImageUploader';
 import IconSelect from '@/components/IconSelect';
 import NfcAssociator from '@/components/NfcAssociator';
 import { MAINTENANCE_ICONS, TIMELINE_ICONS, MODIFICATION_ICONS, GALLERY_ICONS, DOCUMENT_ICONS } from '@/lib/categoryIcons';
+import { MotoDetailSkeleton } from '@/components/skeletons';
 
 const MAINT_TYPES = ['ENGINE','OIL','FILTER','BRAKES','TYRES','CHAIN','BATTERY','ELECTRICAL','SUSPENSION','CARBURATION','COOLING','EXHAUST','BODYWORK','OTHER'];
 const EVENT_TYPES = ['PURCHASE','RESTORATION','MAINTENANCE','MODIFICATION','ACCIDENT','TRIP','RACE','MEETUP','MILESTONE','OTHER'];
@@ -37,7 +38,7 @@ export default function MotoPage({ params }) {
 
   useEffect(() => { load(); }, [id]);
 
-  if (!data) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!data) return <MotoDetailSkeleton />;
   const { moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits = [] } = data;
 
   const publicUrl = `${window.location.origin}/m/${moto.public_id}`;

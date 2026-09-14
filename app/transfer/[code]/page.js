@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { ArrowLeft, Send, ShieldCheck, ArrowRight, KeyRound } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { TransferSkeleton } from '@/components/skeletons';
 
 export default function AcceptTransferPage({ params }) {
   const { code } = use(params);
@@ -41,7 +42,7 @@ export default function AcceptTransferPage({ params }) {
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
 
-  if (user === undefined) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (user === undefined) return <TransferSkeleton />;
 
   if (!user) return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center px-5">
@@ -69,7 +70,7 @@ export default function AcceptTransferPage({ params }) {
     </div>
   );
 
-  if (!preview) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!preview) return <TransferSkeleton />;
 
   const { moto, transfer } = preview;
 

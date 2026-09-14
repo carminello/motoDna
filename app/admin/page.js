@@ -10,6 +10,7 @@ import Logo from '@/components/Logo';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart
 } from 'recharts';
+import { AdminSkeleton } from '@/components/skeletons';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -37,7 +38,7 @@ export default function AdminDashboard() {
     </div>
   );
 
-  if (!data) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!data) return <AdminSkeleton />;
 
   const { stats, chart_registrations_30d, recent_users } = data;
 

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import Logo from '@/components/Logo';
+import { PublicProfileSkeleton } from '@/components/skeletons';
 
 export default function PublicProfile({ params }) {
   const { public_id } = use(params);
@@ -41,11 +42,7 @@ export default function PublicProfile({ params }) {
     </div>
   );
 
-  if (!data) return (
-    <div className="min-h-screen bg-black flex items-center justify-center">
-      <div className="animate-pulse text-neutral-500">Caricamento...</div>
-    </div>
-  );
+  if (!data) return <PublicProfileSkeleton />;
 
   const { moto, owner, maintenance = [], timeline = [], modifications = [], gallery = [], scan_count = 0 } = data;
 

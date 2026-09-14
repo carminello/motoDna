@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Search, MessageSquare, Users, Bike, MapPin, ExternalLink, User as UserIcon } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { CommunitySkeleton } from '@/components/skeletons';
 
 export default function CommunityPage() {
   const router = useRouter();
@@ -77,7 +78,7 @@ export default function CommunityPage() {
         )}
 
         {loading ? (
-          <div className="text-center py-16 text-neutral-500 text-sm">Caricamento...</div>
+          <CommunitySkeleton />
         ) : users.length === 0 ? (
           <div className="text-center py-16 text-neutral-500 text-sm">Nessun utente trovato</div>
         ) : (

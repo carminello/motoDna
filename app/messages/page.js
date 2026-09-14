@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, MessageSquare, Users, Inbox } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { MessagesInboxSkeleton } from '@/components/skeletons';
 
 function timeAgo(date) {
   const d = new Date(date);
@@ -47,7 +48,7 @@ export default function MessagesInbox() {
         <h1 className="text-3xl md:text-4xl font-bold mb-6">Conversazioni</h1>
 
         {loading ? (
-          <div className="text-neutral-500 text-sm">Caricamento...</div>
+          <MessagesInboxSkeleton />
         ) : conversations.length === 0 ? (
           <Card className="metallic p-10 text-center">
             <Inbox className="w-12 h-12 text-neutral-700 mx-auto mb-3" />

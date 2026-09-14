@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, MessageSquare, User as UserIcon, MapPin, Bike, Calendar, ExternalLink } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { UserProfileSkeleton } from '@/components/skeletons';
 
 export default function UserProfilePage({ params }) {
   const { userId } = use(params);
@@ -39,7 +40,7 @@ export default function UserProfilePage({ params }) {
     </div>
   );
 
-  if (!data) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!data) return <UserProfileSkeleton />;
 
   const { user, bikes } = data;
   const isSelf = me?.id === user.id;

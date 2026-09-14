@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { ArrowLeft, Send, User } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { ChatSkeleton } from '@/components/skeletons';
 
 function timeStamp(date) {
   return new Date(date).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -56,7 +57,7 @@ export default function ChatPage({ params }) {
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
 
-  if (!other) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!other) return <ChatSkeleton />;
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">

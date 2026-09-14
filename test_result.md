@@ -1440,3 +1440,40 @@ agent_communication:
 
       FASE 1 CHIUSA. Non procedo con FASE 2 come da istruzioni utente.
 
+
+##################################################################
+# SKELETON LOADERS UX IMPROVEMENT — main agent
+##################################################################
+
+  - agent: "main"
+    message: |
+      Implementati skeleton loaders per rimpiazzare i placeholder testuali
+      "Caricamento..." su 9 pagine. Miglioramento puramente UX: il layout dei
+      contenuti finali è pre-disegnato con blocchi neutri animati (animate-pulse
+      + bg-white/10 su theme dark), così il passaggio skeleton → contenuto reale
+      non genera layout shift (CLS = 0).
+
+      FILE:
+       - NEW  /app/components/skeletons.jsx (10 skeleton components + helper Sk)
+       - MOD  /app/app/dashboard/page.js         → <DashboardSkeleton />
+       - MOD  /app/app/moto/[id]/page.js         → <MotoDetailSkeleton />
+       - MOD  /app/app/m/[public_id]/page.js     → <PublicProfileSkeleton />
+       - MOD  /app/app/community/page.js         → <CommunitySkeleton />
+       - MOD  /app/app/admin/page.js             → <AdminSkeleton />
+       - MOD  /app/app/messages/page.js          → <MessagesInboxSkeleton />
+       - MOD  /app/app/messages/[userId]/page.js → <ChatSkeleton />
+       - MOD  /app/app/u/[userId]/page.js        → <UserProfileSkeleton />
+       - MOD  /app/app/transfer/[code]/page.js   → <TransferSkeleton />
+
+      COMPORTAMENTO INVARIATO: nessuna modifica a API, dati, auth, o alla UI
+      finale. I due "Caricamento..." rimasti sono all'interno di button
+      loading states (upload foto profilo / cambia foto moto) — NON sono
+      skeleton di pagina e vanno lasciati così com'è.
+
+      VERIFICHE:
+       - yarn build production: ✅ 9/9 pagine compilate senza errori
+       - Restart supervisor nextjs: ✅ nessun errore in log
+       - Screenshot con CPU throttle 20x: skeleton visibili e ben strutturati
+         sia su /dashboard sia su /m/[public_id]
+       - Nessuna modifica a backend, non serve backend testing agent
+

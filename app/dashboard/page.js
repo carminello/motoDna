@@ -13,6 +13,7 @@ import ImageUploader from '@/components/ImageUploader';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DashboardSkeleton } from '@/components/skeletons';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function Dashboard() {
     router.push('/');
   };
 
-  if (!data) return <div className="min-h-screen bg-black flex items-center justify-center text-neutral-500">Caricamento...</div>;
+  if (!data) return <DashboardSkeleton />;
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
