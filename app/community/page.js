@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Search, MessageSquare, Users, Bike, MapPin, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Search, MessageSquare, Users, Bike, MapPin, ExternalLink, User as UserIcon } from 'lucide-react';
 import Logo from '@/components/Logo';
 
 export default function CommunityPage() {
@@ -126,11 +126,9 @@ export default function CommunityPage() {
                   </div>
 
                   <div className="mt-4 flex gap-2">
-                    {u.sample_public_id && (
-                      <a href={`/m/${u.sample_public_id}`} target="_blank" rel="noopener" className="flex-1">
-                        <Button size="sm" variant="outline" className="w-full"><ExternalLink className="w-3 h-3 mr-1" />Profilo</Button>
-                      </a>
-                    )}
+                    <Link href={`/u/${u.id}`} className="flex-1">
+                      <Button size="sm" variant="outline" className="w-full"><UserIcon className="w-3 h-3 mr-1" />Profilo</Button>
+                    </Link>
                     {!u.is_self && (
                       <Link href={`/messages/${u.id}`} className="flex-1">
                         <Button size="sm" className="w-full bg-orange-600 hover:bg-orange-500"><MessageSquare className="w-3 h-3 mr-1" />Scrivi</Button>

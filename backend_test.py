@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MotoDNA Backend API Test - Admin Dashboard Feature
-Tests the new admin dashboard with stats, user growth chart, and admin gating
+MotoDNA Backend API Test - Remember Me + Profile Update + Reminder→Maintenance + Admin Visibility
+Tests the new bundle of features on MotoDNA backend
 """
 
 import requests
@@ -16,11 +16,11 @@ BASE_URL = "https://dna-garage.preview.emergentagent.com/api"
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
-def test_admin_dashboard():
-    """Test Admin Dashboard feature end-to-end"""
+def test_remember_me_and_features():
+    """Test Remember Me + Profile Update + Reminder→Maintenance + Admin Visibility + Community User Profile"""
     
     log("=" * 80)
-    log("TEST: Admin Dashboard Feature")
+    log("TEST: Remember Me + Profile Update + Reminder→Maintenance + Admin Visibility")
     log("=" * 80)
     
     session_a = requests.Session()
@@ -29,62 +29,31 @@ def test_admin_dashboard():
     
     user_a_email = None
     user_b_email = None
+    user_a_id = None
+    user_b_id = None
+    motorcycle_id = None
+    public_id = None
     
     try:
-        # TEST 1: Without auth cookie, GET /api/admin/stats → 401
+        # ============== TEST 1: LOGIN + REMEMBER ME ==============
         log("\n" + "=" * 80)
-        log("TEST 1: GET /api/admin/stats without auth (expect 401)")
+        log("TEST 1: LOGIN + REMEMBER ME")
         log("=" * 80)
         
-        resp = unauth_session.get(f"{BASE_URL}/admin/stats")
-        if resp.status_code != 401:
-            log(f"❌ FAILED: Expected 401, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
-            return False
-        
-        log(f"✅ TEST 1 PASSED: Unauthenticated request returns 401")
-        
-        # Get initial user count before registrations
-        log("\n" + "=" * 80)
-        log("SETUP: Get initial user count")
-        log("=" * 80)
-        
-        # We need to use an existing admin to get the initial count
-        # carminellout@gmail.com is already promoted to admin
-        admin_session = requests.Session()
-        admin_login = {
-            "email": "carminellout@gmail.com",
-            "password": "test123"  # Assuming this is the password
-        }
-        
-        # Try to login as existing admin (if exists)
-        resp = admin_session.post(f"{BASE_URL}/auth/login", json=admin_login)
-        initial_total_users = None
-        
-        if resp.status_code == 200:
-            # Get initial stats
-            resp = admin_session.get(f"{BASE_URL}/admin/stats")
-            if resp.status_code == 200:
-                stats_data = resp.json()
-                initial_total_users = stats_data.get('stats', {}).get('total_users', 0)
-                log(f"   Initial total_users: {initial_total_users}")
-        
-        # SETUP: Register user A (non-admin)
-        log("\n" + "=" * 80)
-        log("SETUP: Register User A (non-admin)")
-        log("=" * 80)
-        
+        # Register user A with fresh random email/password
         timestamp = int(time.time())
-        user_a_email = f"testuser_a_{timestamp}@motodna.test"
+        user_a_email = f"testuser_remember_{timestamp}@motodna.test"
+        user_a_password = "SecurePass123!"
         
         register_a = {
             "email": user_a_email,
-            "password": "SecurePass123!",
-            "first_name": "Marco",
-            "last_name": "Verdi",
-            "username": f"marco_{timestamp}"
+            "password": user_a_password,
+            "first_name": "Alessandro",
+            "last_name": "Rossi",
+            "username": f"alex_{timestamp}"
         }
         
+        log(f"\n   Registering User A: {user_a_email}")
         resp = session_a.post(f"{BASE_URL}/auth/register", json=register_a)
         if resp.status_code != 200:
             log(f"❌ FAILED: User A registration failed: {resp.status_code} - {resp.text}")
@@ -92,11 +61,233 @@ def test_admin_dashboard():
         
         user_a_data = resp.json().get('user', {})
         user_a_id = user_a_data.get('id')
-        log(f"✅ User A registered: {user_a_id}")
-        log(f"   Email: {user_a_email}")
-        log(f"   Username: {user_a_data.get('username')}")
+        log(f"   ✅ User A registered: {user_a_id}")
         
-        # Get user A's public_id for regression tests
+        # Save cookie jar A1
+        cookies_a1 = session_a.cookies.copy()
+        
+        # Logout
+        log(f"\n   Logging out User A...")
+        resp = session_a.post(f"{BASE_URL}/auth/logout")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Logout failed: {resp.status_code}")
+            return False
+        log(f"   ✅ User A logged out")
+        
+        # Login with remember: true
+        log(f"\n   Login with remember=true...")
+        login_data = {
+            "email": user_a_email,
+            "password": user_a_password,
+            "remember": True
+        }
+        
+        resp = session_a.post(f"{BASE_URL}/auth/login", json=login_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Login with remember=true failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        # Verify Set-Cookie header contains Max-Age attribute (~7776000 seconds = 90 days)
+        set_cookie_header = resp.headers.get('Set-Cookie', '')
+        log(f"   Set-Cookie header: {set_cookie_header}")
+        
+        if 'Max-Age' not in set_cookie_header and 'max-age' not in set_cookie_header.lower():
+            log(f"❌ FAILED: Set-Cookie header does NOT contain Max-Age attribute for remember=true")
+            return False
+        
+        # Check if Max-Age is approximately 90 days (7776000 seconds)
+        # Allow some tolerance (between 7 days and 100 days)
+        if 'max-age=' in set_cookie_header.lower():
+            import re
+            match = re.search(r'max-age=(\d+)', set_cookie_header, re.IGNORECASE)
+            if match:
+                max_age = int(match.group(1))
+                log(f"   Max-Age value: {max_age} seconds ({max_age / 86400:.1f} days)")
+                
+                # Verify it's approximately 90 days (allow 7-100 days range)
+                if max_age < 7 * 86400 or max_age > 100 * 86400:
+                    log(f"❌ FAILED: Max-Age {max_age} is not in expected range (7-100 days)")
+                    return False
+        
+        # Verify response body includes is_admin (false for A)
+        login_response = resp.json()
+        user_data = login_response.get('user', {})
+        is_admin = user_data.get('is_admin')
+        
+        if is_admin is None:
+            log(f"❌ FAILED: Response body does NOT include is_admin field")
+            return False
+        
+        if is_admin != False:
+            log(f"❌ FAILED: is_admin should be False for non-admin user, got {is_admin}")
+            return False
+        
+        log(f"   ✅ Login with remember=true successful")
+        log(f"   ✅ Set-Cookie contains Max-Age attribute (~90 days)")
+        log(f"   ✅ Response includes is_admin=False")
+        
+        # Logout again
+        log(f"\n   Logging out User A...")
+        resp = session_a.post(f"{BASE_URL}/auth/logout")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Logout failed: {resp.status_code}")
+            return False
+        
+        # Login with remember: false
+        log(f"\n   Login with remember=false...")
+        login_data = {
+            "email": user_a_email,
+            "password": user_a_password,
+            "remember": False
+        }
+        
+        resp = session_a.post(f"{BASE_URL}/auth/login", json=login_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Login with remember=false failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        # Verify Set-Cookie header does NOT include Max-Age attribute (session cookie)
+        set_cookie_header = resp.headers.get('Set-Cookie', '')
+        log(f"   Set-Cookie header: {set_cookie_header}")
+        
+        if 'Max-Age' in set_cookie_header or 'max-age' in set_cookie_header.lower():
+            log(f"❌ FAILED: Set-Cookie header contains Max-Age attribute for remember=false (should be session cookie)")
+            return False
+        
+        log(f"   ✅ Login with remember=false successful")
+        log(f"   ✅ Set-Cookie does NOT contain Max-Age (session cookie)")
+        
+        # Test wrong password
+        log(f"\n   Testing wrong password...")
+        login_data = {
+            "email": user_a_email,
+            "password": "WRONG_PASSWORD",
+            "remember": False
+        }
+        
+        resp = session_a.post(f"{BASE_URL}/auth/login", json=login_data)
+        if resp.status_code != 401:
+            log(f"❌ FAILED: Expected 401 for wrong password, got {resp.status_code}")
+            return False
+        
+        error_data = resp.json()
+        error_msg = error_data.get('error', '')
+        
+        if error_msg != 'Credenziali non valide':
+            log(f"❌ FAILED: Expected error 'Credenziali non valide', got '{error_msg}'")
+            return False
+        
+        log(f"   ✅ Wrong password correctly returns 401 with 'Credenziali non valide'")
+        
+        log(f"\n✅ TEST 1 PASSED: LOGIN + REMEMBER ME working correctly")
+        
+        # Re-login with correct credentials for subsequent tests
+        login_data = {
+            "email": user_a_email,
+            "password": user_a_password,
+            "remember": True
+        }
+        resp = session_a.post(f"{BASE_URL}/auth/login", json=login_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: Re-login failed: {resp.status_code}")
+            return False
+        
+        # ============== TEST 2: PROFILE UPDATE ==============
+        log("\n" + "=" * 80)
+        log("TEST 2: PROFILE UPDATE")
+        log("=" * 80)
+        
+        # PUT /api/auth/me with profile updates
+        log(f"\n   Updating profile: first_name, profile_photo, country...")
+        update_data = {
+            "first_name": "Marco",
+            "profile_photo": "https://example.com/a.png",
+            "country": "Italia"
+        }
+        
+        resp = session_a.put(f"{BASE_URL}/auth/me", json=update_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: PUT /api/auth/me failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        update_response = resp.json()
+        updated_user = update_response.get('user', {})
+        
+        # Verify NO password_hash in response
+        if 'password_hash' in updated_user:
+            log(f"❌ FAILED: Response contains password_hash (security issue!)")
+            return False
+        
+        # Verify updated values
+        if updated_user.get('first_name') != 'Marco':
+            log(f"❌ FAILED: first_name not updated, got {updated_user.get('first_name')}")
+            return False
+        
+        if updated_user.get('profile_photo') != 'https://example.com/a.png':
+            log(f"❌ FAILED: profile_photo not updated, got {updated_user.get('profile_photo')}")
+            return False
+        
+        if updated_user.get('country') != 'Italia':
+            log(f"❌ FAILED: country not updated, got {updated_user.get('country')}")
+            return False
+        
+        log(f"   ✅ Profile updated successfully")
+        log(f"   ✅ NO password_hash in response")
+        
+        # GET /api/auth/me to verify updates persisted
+        log(f"\n   Verifying updates with GET /api/auth/me...")
+        resp = session_a.get(f"{BASE_URL}/auth/me")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/auth/me failed: {resp.status_code}")
+            return False
+        
+        me_response = resp.json()
+        me_user = me_response.get('user', {})
+        
+        if me_user.get('first_name') != 'Marco':
+            log(f"❌ FAILED: first_name not persisted, got {me_user.get('first_name')}")
+            return False
+        
+        if me_user.get('profile_photo') != 'https://example.com/a.png':
+            log(f"❌ FAILED: profile_photo not persisted, got {me_user.get('profile_photo')}")
+            return False
+        
+        if me_user.get('country') != 'Italia':
+            log(f"❌ FAILED: country not persisted, got {me_user.get('country')}")
+            return False
+        
+        log(f"   ✅ Updates persisted correctly")
+        
+        # Update username
+        log(f"\n   Updating username...")
+        new_username = f"newuser_abc123_{timestamp}"
+        update_data = {
+            "username": new_username
+        }
+        
+        resp = session_a.put(f"{BASE_URL}/auth/me", json=update_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: PUT /api/auth/me (username) failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        update_response = resp.json()
+        updated_user = update_response.get('user', {})
+        
+        if updated_user.get('username') != new_username:
+            log(f"❌ FAILED: username not updated, got {updated_user.get('username')}")
+            return False
+        
+        log(f"   ✅ Username updated to: {new_username}")
+        
+        log(f"\n✅ TEST 2 PASSED: PROFILE UPDATE working correctly")
+        
+        # ============== TEST 3: REMINDER → MAINTENANCE ==============
+        log("\n" + "=" * 80)
+        log("TEST 3: REMINDER → MAINTENANCE")
+        log("=" * 80)
+        
+        # Get motorcycle_id from GET /api/dashboard
+        log(f"\n   Getting motorcycle_id from dashboard...")
         resp = session_a.get(f"{BASE_URL}/dashboard")
         if resp.status_code != 200:
             log(f"❌ FAILED: GET /api/dashboard failed: {resp.status_code}")
@@ -104,61 +295,238 @@ def test_admin_dashboard():
         
         dashboard_data = resp.json()
         motos = dashboard_data.get('motos', [])
+        
         if len(motos) == 0:
-            log(f"❌ FAILED: No motorcycles found for user A")
+            log(f"❌ FAILED: No motorcycles found")
             return False
         
-        user_a_public_id = motos[0]['public_id']
-        log(f"   User A's public_id: {user_a_public_id}")
+        motorcycle_id = motos[0]['id']
+        public_id = motos[0]['public_id']
+        log(f"   ✅ motorcycle_id: {motorcycle_id}")
+        log(f"   ✅ public_id: {public_id}")
         
-        # TEST 2: As A (non-admin), GET /api/admin/stats → 403
-        log("\n" + "=" * 80)
-        log("TEST 2: As User A (non-admin), GET /api/admin/stats (expect 403)")
-        log("=" * 80)
+        # Create a NON-recurring reminder
+        log(f"\n   Creating NON-recurring reminder...")
+        reminder_data = {
+            "title": "Cambio filtro aria",
+            "target_mileage": 20000
+        }
         
-        resp = session_a.get(f"{BASE_URL}/admin/stats")
-        if resp.status_code != 403:
-            log(f"❌ FAILED: Expected 403, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
+        resp = session_a.post(f"{BASE_URL}/motorcycles/{motorcycle_id}/reminders", json=reminder_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: POST reminder failed: {resp.status_code} - {resp.text}")
             return False
         
-        error_data = resp.json()
-        error_msg = error_data.get('error', '')
+        reminder_response = resp.json()
+        reminder_r1 = reminder_response.get('item', {})
+        reminder_r1_id = reminder_r1.get('id')
         
-        if error_msg != "Accesso riservato agli admin":
-            log(f"❌ FAILED: Expected error message 'Accesso riservato agli admin', got '{error_msg}'")
+        log(f"   ✅ NON-recurring reminder R1 created: {reminder_r1_id}")
+        log(f"      Title: {reminder_r1.get('title')}")
+        log(f"      Target mileage: {reminder_r1.get('target_mileage')}")
+        
+        # Complete the NON-recurring reminder
+        log(f"\n   Completing NON-recurring reminder R1...")
+        resp = session_a.post(f"{BASE_URL}/reminders/{reminder_r1_id}/complete", json={})
+        if resp.status_code not in [200, 201]:
+            log(f"❌ FAILED: POST /api/reminders/{reminder_r1_id}/complete failed: {resp.status_code} - {resp.text}")
             return False
         
-        log(f"✅ TEST 2 PASSED: Non-admin user correctly denied with 403")
-        log(f"   Error message: {error_msg}")
+        complete_response = resp.json()
+        maintenance = complete_response.get('maintenance', {})
         
-        # SETUP: Register user B and promote to admin
-        log("\n" + "=" * 80)
-        log("SETUP: Register User B and promote to admin")
-        log("=" * 80)
+        # Verify maintenance object
+        if not maintenance.get('id'):
+            log(f"❌ FAILED: Maintenance object missing id")
+            return False
         
+        if maintenance.get('motorcycle_id') != motorcycle_id:
+            log(f"❌ FAILED: Maintenance motorcycle_id mismatch")
+            return False
+        
+        if maintenance.get('service_type') != 'OTHER':
+            log(f"❌ FAILED: Maintenance service_type should be 'OTHER', got {maintenance.get('service_type')}")
+            return False
+        
+        if maintenance.get('title') != 'Cambio filtro aria':
+            log(f"❌ FAILED: Maintenance title mismatch, got {maintenance.get('title')}")
+            return False
+        
+        if maintenance.get('mileage') != 20000:
+            log(f"❌ FAILED: Maintenance mileage should be 20000, got {maintenance.get('mileage')}")
+            return False
+        
+        if maintenance.get('from_reminder_id') != reminder_r1_id:
+            log(f"❌ FAILED: Maintenance from_reminder_id mismatch")
+            return False
+        
+        log(f"   ✅ Maintenance created from reminder R1")
+        log(f"      Maintenance ID: {maintenance.get('id')}")
+        log(f"      Title: {maintenance.get('title')}")
+        log(f"      Mileage: {maintenance.get('mileage')}")
+        log(f"      from_reminder_id: {maintenance.get('from_reminder_id')}")
+        
+        # Verify reminder R1 is marked as DONE
+        log(f"\n   Verifying reminder R1 status...")
+        resp = session_a.get(f"{BASE_URL}/motorcycles/{motorcycle_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/motorcycles/{motorcycle_id} failed: {resp.status_code}")
+            return False
+        
+        moto_data = resp.json()
+        reminders = moto_data.get('reminders', [])
+        maintenance_list = moto_data.get('maintenance', [])
+        
+        # Find R1 in reminders
+        r1_found = None
+        for r in reminders:
+            if r.get('id') == reminder_r1_id:
+                r1_found = r
+                break
+        
+        if not r1_found:
+            log(f"❌ FAILED: Reminder R1 not found in reminders list")
+            return False
+        
+        if r1_found.get('status') != 'DONE':
+            log(f"❌ FAILED: Reminder R1 status should be 'DONE', got {r1_found.get('status')}")
+            return False
+        
+        if not r1_found.get('completed_at'):
+            log(f"❌ FAILED: Reminder R1 completed_at not set")
+            return False
+        
+        log(f"   ✅ Reminder R1 status: DONE")
+        log(f"   ✅ Reminder R1 completed_at: {r1_found.get('completed_at')}")
+        
+        # Verify maintenance entry exists with from_reminder_id
+        maintenance_found = None
+        for m in maintenance_list:
+            if m.get('from_reminder_id') == reminder_r1_id:
+                maintenance_found = m
+                break
+        
+        if not maintenance_found:
+            log(f"❌ FAILED: Maintenance with from_reminder_id={reminder_r1_id} not found")
+            return False
+        
+        log(f"   ✅ Maintenance entry found with from_reminder_id={reminder_r1_id}")
+        
+        # Create a RECURRING reminder
+        log(f"\n   Creating RECURRING reminder...")
+        reminder_data = {
+            "title": "Cambio olio",
+            "repeat_interval_km": 3000
+        }
+        
+        resp = session_a.post(f"{BASE_URL}/motorcycles/{motorcycle_id}/reminders", json=reminder_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: POST recurring reminder failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        reminder_response = resp.json()
+        reminder_r2 = reminder_response.get('item', {})
+        reminder_r2_id = reminder_r2.get('id')
+        
+        log(f"   ✅ RECURRING reminder R2 created: {reminder_r2_id}")
+        log(f"      Title: {reminder_r2.get('title')}")
+        log(f"      repeat_interval_km: {reminder_r2.get('repeat_interval_km')}")
+        
+        # Complete the RECURRING reminder with mileage 15000
+        log(f"\n   Completing RECURRING reminder R2 with mileage=15000...")
+        resp = session_a.post(f"{BASE_URL}/reminders/{reminder_r2_id}/complete", json={"mileage": 15000})
+        if resp.status_code not in [200, 201]:
+            log(f"❌ FAILED: POST /api/reminders/{reminder_r2_id}/complete failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        complete_response = resp.json()
+        maintenance_r2 = complete_response.get('maintenance', {})
+        
+        log(f"   ✅ Maintenance created from recurring reminder R2")
+        log(f"      Maintenance ID: {maintenance_r2.get('id')}")
+        log(f"      Mileage: {maintenance_r2.get('mileage')}")
+        
+        # Verify R2 still exists with target_mileage=18000 (15000+3000)
+        log(f"\n   Verifying recurring reminder R2 rebased...")
+        resp = session_a.get(f"{BASE_URL}/motorcycles/{motorcycle_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/motorcycles/{motorcycle_id} failed: {resp.status_code}")
+            return False
+        
+        moto_data = resp.json()
+        reminders = moto_data.get('reminders', [])
+        
+        # Find R2 in reminders
+        r2_found = None
+        for r in reminders:
+            if r.get('id') == reminder_r2_id:
+                r2_found = r
+                break
+        
+        if not r2_found:
+            log(f"❌ FAILED: Recurring reminder R2 not found (should still exist)")
+            return False
+        
+        expected_target = 15000 + 3000  # 18000
+        if r2_found.get('target_mileage') != expected_target:
+            log(f"❌ FAILED: R2 target_mileage should be {expected_target}, got {r2_found.get('target_mileage')}")
+            return False
+        
+        if not r2_found.get('last_completed_at'):
+            log(f"❌ FAILED: R2 last_completed_at not set")
+            return False
+        
+        log(f"   ✅ Recurring reminder R2 still exists")
+        log(f"   ✅ R2 target_mileage rebased to: {r2_found.get('target_mileage')}")
+        log(f"   ✅ R2 last_completed_at: {r2_found.get('last_completed_at')}")
+        
+        # Test completing non-existent reminder
+        log(f"\n   Testing non-existent reminder...")
+        fake_reminder_id = str(uuid.uuid4())
+        resp = session_a.post(f"{BASE_URL}/reminders/{fake_reminder_id}/complete", json={})
+        if resp.status_code != 404:
+            log(f"❌ FAILED: Expected 404 for non-existent reminder, got {resp.status_code}")
+            return False
+        
+        log(f"   ✅ Non-existent reminder returns 404")
+        
+        # Register user B to test scoping
+        log(f"\n   Registering User B to test reminder scoping...")
         user_b_email = f"testuser_b_{timestamp}@motodna.test"
-        
         register_b = {
             "email": user_b_email,
             "password": "SecurePass456!",
-            "first_name": "Giulia",
-            "last_name": "Neri",
-            "username": f"giulia_{timestamp}"
+            "first_name": "Bruno",
+            "last_name": "Bianchi",
+            "username": f"bruno_{timestamp}"
         }
         
         resp = session_b.post(f"{BASE_URL}/auth/register", json=register_b)
         if resp.status_code != 200:
-            log(f"❌ FAILED: User B registration failed: {resp.status_code} - {resp.text}")
+            log(f"❌ FAILED: User B registration failed: {resp.status_code}")
             return False
         
         user_b_data = resp.json().get('user', {})
         user_b_id = user_b_data.get('id')
-        log(f"✅ User B registered: {user_b_id}")
-        log(f"   Email: {user_b_email}")
-        log(f"   Username: {user_b_data.get('username')}")
+        log(f"   ✅ User B registered: {user_b_id}")
         
-        # Promote user B to admin using the script
+        # Try to complete R1 as user B (should fail with 404 - scoped to user_id)
+        log(f"\n   Testing reminder scoping (User B tries to complete User A's reminder)...")
+        resp = session_b.post(f"{BASE_URL}/reminders/{reminder_r1_id}/complete", json={})
+        if resp.status_code != 404:
+            log(f"❌ FAILED: Expected 404 when User B tries to complete User A's reminder, got {resp.status_code}")
+            return False
+        
+        log(f"   ✅ User B correctly denied access to User A's reminder (404)")
+        
+        log(f"\n✅ TEST 3 PASSED: REMINDER → MAINTENANCE working correctly")
+        
+        # ============== TEST 4: ADMIN VISIBILITY ==============
+        log("\n" + "=" * 80)
+        log("TEST 4: ADMIN VISIBILITY")
+        log("=" * 80)
+        
+        # Promote User B to admin
         log(f"\n   Promoting User B to admin...")
         try:
             result = subprocess.run(
@@ -174,217 +542,149 @@ def test_admin_dashboard():
                 return False
             
             log(f"   ✅ User B promoted to admin")
-            log(f"   Script output: {result.stdout.strip()}")
         except Exception as e:
             log(f"❌ FAILED: Error running promote_admin.js: {str(e)}")
             return False
         
-        # TEST 3: As B (admin), GET /api/admin/stats → 200 with proper structure
-        log("\n" + "=" * 80)
-        log("TEST 3: As User B (admin), GET /api/admin/stats (expect 200)")
-        log("=" * 80)
-        
-        resp = session_b.get(f"{BASE_URL}/admin/stats")
+        # GET /api/auth/me as User B (admin)
+        log(f"\n   Verifying is_admin=true for User B...")
+        resp = session_b.get(f"{BASE_URL}/auth/me")
         if resp.status_code != 200:
-            log(f"❌ FAILED: Expected 200, got {resp.status_code}")
-            log(f"   Response: {resp.text}")
+            log(f"❌ FAILED: GET /api/auth/me failed: {resp.status_code}")
             return False
         
-        stats_response = resp.json()
+        me_response = resp.json()
+        me_user = me_response.get('user', {})
+        is_admin = me_user.get('is_admin')
         
-        # Verify response structure
-        if 'stats' not in stats_response:
-            log(f"❌ FAILED: Missing 'stats' object in response")
+        if is_admin != True:
+            log(f"❌ FAILED: is_admin should be True for promoted user, got {is_admin}")
             return False
         
-        if 'chart_registrations_30d' not in stats_response:
-            log(f"❌ FAILED: Missing 'chart_registrations_30d' array in response")
-            return False
+        log(f"   ✅ User B is_admin=True")
         
-        if 'recent_users' not in stats_response:
-            log(f"❌ FAILED: Missing 'recent_users' array in response")
-            return False
-        
-        stats = stats_response['stats']
-        chart = stats_response['chart_registrations_30d']
-        recent_users = stats_response['recent_users']
-        
-        # Verify stats object has all required keys
-        required_stats_keys = [
-            'total_users', 'new_today', 'new_7d', 'total_bikes', 'total_postits',
-            'total_messages', 'online_24h', 'total_scans', 'total_gallery',
-            'total_maintenance', 'total_timeline', 'total_modifications'
-        ]
-        
-        for key in required_stats_keys:
-            if key not in stats:
-                log(f"❌ FAILED: Missing key '{key}' in stats object")
-                return False
-            
-            value = stats[key]
-            if not isinstance(value, (int, float)) or value < 0:
-                log(f"❌ FAILED: stats.{key} is not a non-negative number: {value}")
-                return False
-        
-        log(f"✅ TEST 3 PASSED: Admin stats endpoint returns 200 with proper structure")
-        log(f"   Stats keys verified: {len(required_stats_keys)}")
-        log(f"   total_users: {stats['total_users']}")
-        log(f"   new_today: {stats['new_today']}")
-        log(f"   new_7d: {stats['new_7d']}")
-        log(f"   total_bikes: {stats['total_bikes']}")
-        log(f"   total_postits: {stats['total_postits']}")
-        log(f"   total_messages: {stats['total_messages']}")
-        log(f"   online_24h: {stats['online_24h']}")
-        log(f"   total_scans: {stats['total_scans']}")
-        log(f"   total_gallery: {stats['total_gallery']}")
-        log(f"   total_maintenance: {stats['total_maintenance']}")
-        log(f"   total_timeline: {stats['total_timeline']}")
-        log(f"   total_modifications: {stats['total_modifications']}")
-        
-        # Verify chart_registrations_30d structure
-        log("\n   Verifying chart_registrations_30d structure...")
-        
-        if not isinstance(chart, list):
-            log(f"❌ FAILED: chart_registrations_30d is not an array")
-            return False
-        
-        if len(chart) != 30:
-            log(f"❌ FAILED: chart_registrations_30d should have exactly 30 items, got {len(chart)}")
-            return False
-        
-        for i, item in enumerate(chart):
-            if 'date' not in item or 'label' not in item or 'users' not in item:
-                log(f"❌ FAILED: chart item {i} missing required fields (date, label, users)")
-                return False
-            
-            # Verify date format YYYY-MM-DD
-            date_str = item['date']
-            if not isinstance(date_str, str) or len(date_str) != 10:
-                log(f"❌ FAILED: chart item {i} date format invalid: {date_str}")
-                return False
-            
-            # Verify users is a number
-            if not isinstance(item['users'], (int, float)) or item['users'] < 0:
-                log(f"❌ FAILED: chart item {i} users is not a non-negative number: {item['users']}")
-                return False
-        
-        log(f"   ✅ chart_registrations_30d: {len(chart)} items, all valid")
-        log(f"   Sample: {chart[-1]}")  # Last day (today)
-        
-        # Verify recent_users structure
-        log("\n   Verifying recent_users structure...")
-        
-        if not isinstance(recent_users, list):
-            log(f"❌ FAILED: recent_users is not an array")
-            return False
-        
-        if len(recent_users) > 10:
-            log(f"❌ FAILED: recent_users should have at most 10 items, got {len(recent_users)}")
-            return False
-        
-        for i, user in enumerate(recent_users):
-            # Verify password_hash is NOT present
-            if 'password_hash' in user:
-                log(f"❌ FAILED: recent_users[{i}] contains password_hash (security issue!)")
-                return False
-            
-            # Verify required fields
-            if 'id' not in user or 'username' not in user or 'email' not in user:
-                log(f"❌ FAILED: recent_users[{i}] missing required fields")
-                return False
-        
-        log(f"   ✅ recent_users: {len(recent_users)} items, no password_hash exposed")
-        
-        # TEST 4: online_24h tracking
-        log("\n" + "=" * 80)
-        log("TEST 4: online_24h tracking - hit /api/auth/me as A, then check stats")
-        log("=" * 80)
-        
-        # Hit /api/auth/me as user A to update last_seen
+        # GET /api/auth/me as User A (non-admin)
+        log(f"\n   Verifying is_admin=false for User A...")
         resp = session_a.get(f"{BASE_URL}/auth/me")
         if resp.status_code != 200:
             log(f"❌ FAILED: GET /api/auth/me failed: {resp.status_code}")
             return False
         
-        log(f"   ✅ User A hit /api/auth/me (last_seen updated)")
+        me_response = resp.json()
+        me_user = me_response.get('user', {})
+        is_admin = me_user.get('is_admin')
         
-        # Re-fetch stats as admin B
-        resp = session_b.get(f"{BASE_URL}/admin/stats")
-        if resp.status_code != 200:
-            log(f"❌ FAILED: GET /api/admin/stats failed: {resp.status_code}")
+        if is_admin not in [False, None]:
+            log(f"❌ FAILED: is_admin should be False or absent for non-admin user, got {is_admin}")
             return False
         
-        stats_response = resp.json()
-        online_24h = stats_response['stats']['online_24h']
+        log(f"   ✅ User A is_admin={is_admin} (non-admin)")
         
-        # online_24h should be at least 1 (user A just accessed)
-        if online_24h < 1:
-            log(f"❌ FAILED: online_24h should be >= 1, got {online_24h}")
-            return False
+        log(f"\n✅ TEST 4 PASSED: ADMIN VISIBILITY working correctly")
         
-        log(f"✅ TEST 4 PASSED: online_24h tracking working")
-        log(f"   online_24h: {online_24h} (includes User A)")
-        
-        # TEST 5: new_today count
+        # ============== TEST 5: COMMUNITY USER PROFILE ==============
         log("\n" + "=" * 80)
-        log("TEST 5: new_today count - verify increased by 2 after registrations")
+        log("TEST 5: COMMUNITY USER PROFILE")
         log("=" * 80)
         
-        current_total_users = stats_response['stats']['total_users']
-        new_today = stats_response['stats']['new_today']
-        
-        # new_today should be at least 2 (user A and user B registered today)
-        if new_today < 2:
-            log(f"❌ FAILED: new_today should be >= 2, got {new_today}")
+        # GET /api/community/users/{A_id} as User B
+        log(f"\n   Getting User A's community profile as User B...")
+        resp = session_b.get(f"{BASE_URL}/community/users/{user_a_id}")
+        if resp.status_code != 200:
+            log(f"❌ FAILED: GET /api/community/users/{user_a_id} failed: {resp.status_code} - {resp.text}")
             return False
         
-        log(f"✅ TEST 5 PASSED: new_today count correct")
-        log(f"   new_today: {new_today} (includes User A and User B)")
-        log(f"   total_users: {current_total_users}")
+        profile_response = resp.json()
+        user_profile = profile_response.get('user', {})
+        bikes = profile_response.get('bikes', [])
         
-        if initial_total_users is not None:
-            users_added = current_total_users - initial_total_users
-            log(f"   Users added during test: {users_added}")
+        # Verify user object does NOT include email or password_hash
+        if 'email' in user_profile:
+            log(f"❌ FAILED: User profile exposes email (privacy issue!)")
+            return False
         
-        # TEST 6: Regression tests
+        if 'password_hash' in user_profile:
+            log(f"❌ FAILED: User profile exposes password_hash (security issue!)")
+            return False
+        
+        log(f"   ✅ User profile does NOT expose email or password_hash")
+        log(f"   ✅ User profile: {user_profile.get('username')}")
+        log(f"   ✅ Bikes count: {len(bikes)}")
+        
+        # Verify bikes array only contains public_profile:true bikes
+        # First, set one bike to private
+        if len(bikes) > 0:
+            log(f"\n   Setting User A's bike to private to test filtering...")
+            resp = session_a.put(f"{BASE_URL}/motorcycles/{motorcycle_id}", json={"public_profile": False})
+            if resp.status_code != 200:
+                log(f"❌ FAILED: PUT motorcycle failed: {resp.status_code}")
+                return False
+            
+            log(f"   ✅ Bike set to private")
+            
+            # Re-fetch community profile
+            resp = session_b.get(f"{BASE_URL}/community/users/{user_a_id}")
+            if resp.status_code != 200:
+                log(f"❌ FAILED: GET /api/community/users/{user_a_id} failed: {resp.status_code}")
+                return False
+            
+            profile_response = resp.json()
+            bikes = profile_response.get('bikes', [])
+            
+            # Should be empty now (no public bikes)
+            if len(bikes) != 0:
+                log(f"❌ FAILED: Bikes array should be empty (bike is private), got {len(bikes)} bikes")
+                return False
+            
+            log(f"   ✅ Private bike correctly excluded from community profile")
+            
+            # Set bike back to public
+            resp = session_a.put(f"{BASE_URL}/motorcycles/{motorcycle_id}", json={"public_profile": True})
+            if resp.status_code != 200:
+                log(f"❌ FAILED: PUT motorcycle failed: {resp.status_code}")
+                return False
+        
+        log(f"\n✅ TEST 5 PASSED: COMMUNITY USER PROFILE working correctly")
+        
+        # ============== TEST 6: REGRESSION ==============
         log("\n" + "=" * 80)
-        log("TEST 6: Regression - verify existing endpoints still work")
+        log("TEST 6: REGRESSION TESTS")
         log("=" * 80)
         
-        # As A, GET /api/community/users
-        resp = session_a.get(f"{BASE_URL}/community/users")
+        # GET /api/public/{public_id} (no auth)
+        log(f"\n   Testing GET /api/public/{public_id} (no auth)...")
+        resp = unauth_session.get(f"{BASE_URL}/public/{public_id}")
         if resp.status_code != 200:
-            log(f"❌ FAILED: GET /api/community/users failed: {resp.status_code}")
-            return False
-        log(f"   ✅ GET /api/community/users working")
-        
-        # GET /api/public/{A's public_id} without auth
-        resp = unauth_session.get(f"{BASE_URL}/public/{user_a_public_id}")
-        if resp.status_code != 200:
-            log(f"❌ FAILED: GET /api/public/{user_a_public_id} failed: {resp.status_code}")
+            log(f"❌ FAILED: GET /api/public/{public_id} failed: {resp.status_code}")
             return False
         
-        # Verify sensitive fields NOT exposed
-        public_data = resp.json()
-        moto = public_data.get('moto', {})
+        log(f"   ✅ GET /api/public/{public_id} working")
         
-        if 'plate' in moto or 'owner_id' in moto or 'is_demo' in moto:
-            log(f"❌ FAILED: Public profile exposes sensitive fields")
-            return False
-        
-        log(f"   ✅ GET /api/public/{user_a_public_id} working (no auth, no sensitive fields)")
-        
-        # As A, GET /api/messages
+        # GET /api/messages (as A)
+        log(f"\n   Testing GET /api/messages (as User A)...")
         resp = session_a.get(f"{BASE_URL}/messages")
         if resp.status_code != 200:
             log(f"❌ FAILED: GET /api/messages failed: {resp.status_code}")
             return False
+        
         log(f"   ✅ GET /api/messages working")
         
-        log(f"✅ TEST 6 PASSED: All regression tests successful")
+        # POST /api/motorcycles/{motorcycle_id}/nfc/associate (as A)
+        log(f"\n   Testing POST /api/motorcycles/{motorcycle_id}/nfc/associate (as User A)...")
+        nfc_data = {
+            "tag_uid": "04:aa:bb:cc:test"
+        }
+        resp = session_a.post(f"{BASE_URL}/motorcycles/{motorcycle_id}/nfc/associate", json=nfc_data)
+        if resp.status_code != 200:
+            log(f"❌ FAILED: POST /api/motorcycles/{motorcycle_id}/nfc/associate failed: {resp.status_code} - {resp.text}")
+            return False
+        
+        log(f"   ✅ POST /api/motorcycles/{motorcycle_id}/nfc/associate working")
+        
+        log(f"\n✅ TEST 6 PASSED: All regression tests successful")
         
         log("\n" + "=" * 80)
-        log("🎉 ALL ADMIN DASHBOARD TESTS PASSED!")
+        log("🎉 ALL TESTS PASSED!")
         log("=" * 80)
         
         return True
@@ -401,9 +701,9 @@ def test_admin_dashboard():
         log("CLEANUP: Deleting test users from database")
         log("=" * 80)
         
+        # Do NOT delete carminellout@gmail.com
         if user_a_email or user_b_email:
             try:
-                # Use the cleanup script approach
                 cleanup_script = f"""
 const {{ MongoClient }} = require('/app/node_modules/mongodb');
 const MONGO_URL = 'mongodb://localhost:27017';
@@ -418,8 +718,17 @@ const DB_NAME = 'motodna';
   if ('{user_a_email}') emails.push('{user_a_email}');
   if ('{user_b_email}') emails.push('{user_b_email}');
   
+  // Filter out carminellout@gmail.com
+  const filteredEmails = emails.filter(e => e !== 'carminellout@gmail.com');
+  
+  if (filteredEmails.length === 0) {{
+    console.log('No test users to delete');
+    await c.close();
+    return;
+  }}
+  
   // Find user IDs
-  const users = await db.collection('users').find({{ email: {{ $in: emails }} }}).toArray();
+  const users = await db.collection('users').find({{ email: {{ $in: filteredEmails }} }}).toArray();
   const userIds = users.map(u => u.id);
   
   if (userIds.length === 0) {{
@@ -428,7 +737,7 @@ const DB_NAME = 'motodna';
     return;
   }}
   
-  console.log(`Deleting ${{userIds.length}} test users: ${{emails.join(', ')}}`);
+  console.log(`Deleting ${{userIds.length}} test users: ${{filteredEmails.join(', ')}}`);
   
   // Find motorcycles owned by these users
   const motos = await db.collection('motorcycles').find({{ owner_id: {{ $in: userIds }} }}).toArray();
@@ -486,11 +795,11 @@ const DB_NAME = 'motodna';
                 log(f"⚠️  Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    log("Starting MotoDNA Backend Tests - Admin Dashboard Feature")
+    log("Starting MotoDNA Backend Tests - Remember Me + Profile Update + Reminder→Maintenance + Admin Visibility")
     log(f"Base URL: {BASE_URL}")
     log("")
     
-    result = test_admin_dashboard()
+    result = test_remember_me_and_features()
     
     if result:
         log("\n" + "=" * 80)

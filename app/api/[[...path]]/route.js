@@ -15,10 +15,11 @@ async function getBucket() {
   return new GridFSBucket(db, { bucketName: 'uploads' });
 }
 
-function setAuthCookie(response, token) {
+function setAuthCookie(response, token, remember = true) {
   response.cookies.set('motodna_token', token, {
     httpOnly: true, sameSite: 'lax', path: '/',
-    maxAge: 60 * 60 * 24 * 30, secure: true,
+    ...(remember ? { maxAge: 60 * 60 * 24 * 90 } : {}),
+    secure: true,
   });
   return response;
 }
@@ -85,14 +86,14 @@ async function handler(request, { params }) {
     }
 
     if (path === '/auth/login' && method === 'POST') {
-      const { email, password } = await request.json();
+      const { email, password, remember } = await request.json();
       const user = await db.collection('users').findOne({ email: (email || '').toLowerCase() });
       if (!user) return json({ error: 'Credenziali non valide' }, 401);
       const ok = await verifyPassword(password, user.password_hash);
       if (!ok) return json({ error: 'Credenziali non valide' }, 401);
       const token = signToken({ sub: user.id, email: user.email });
-      const res = json({ user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, username: user.username } });
-      setAuthCookie(res, token);
+      const res = json({ user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, username: user.username, is_admin: !!user.is_admin } });
+      setAuthCookie(res, token, remember !== false);
       return res;
     }
 
@@ -286,7 +287,57 @@ async function handler(request, { params }) {
       return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length }, 201);
     }
 
-    // ============== ADMIN ==============
+    // PUT /api/auth/me - update own profile
+    if (path === '/auth/me' && method === 'PUT') {
+      const body = await request.json();
+      const updates = {};
+      const allowed = ['first_name','last_name','username','profile_photo','country'];
+      for (const f of allowed) if (f in body) updates[f] = body[f];
+      updates.updated_at = new Date();
+      await db.collection('users').updateOne({ id: userId }, { $set: updates });
+      const user = await db.collection('users').findOne({ id: userId }, { projection: { password_hash: 0, _id: 0 } });
+      return json({ user });
+    }
+
+    // POST /api/reminders/:reminderId/complete - complete a reminder -> creates maintenance
+    if (p[0] === 'reminders' && p[1] && p[2] === 'complete' && method === 'POST') {
+      const reminder = await db.collection('reminders').findOne({ id: p[1], user_id: userId });
+      if (!reminder) return json({ error: 'Promemoria non trovato' }, 404);
+      const body = await request.json().catch(() => ({}));
+      const now = new Date();
+      const maint = {
+        id: uuidv4(),
+        motorcycle_id: reminder.motorcycle_id,
+        user_id: userId,
+        service_type: body.service_type || 'OTHER',
+        title: body.title || reminder.title,
+        description: body.description || reminder.description || '',
+        date: body.date ? new Date(body.date) : now,
+        mileage: parseInt(body.mileage) || reminder.target_mileage || 0,
+        cost: parseFloat(body.cost) || 0,
+        currency: body.currency || 'EUR',
+        verified: false,
+        is_public: body.is_public !== false,
+        from_reminder_id: reminder.id,
+        created_at: now,
+      };
+      await db.collection('maintenance').insertOne(maint);
+      // If reminder is recurring, keep it (bump target). Otherwise mark DONE.
+      if (reminder.repeat_interval_km || reminder.repeat_interval_months) {
+        const nextUpdate = {};
+        if (reminder.repeat_interval_km) nextUpdate.target_mileage = (maint.mileage || 0) + reminder.repeat_interval_km;
+        if (reminder.repeat_interval_months && reminder.target_date) {
+          const nd = new Date(maint.date);
+          nd.setMonth(nd.getMonth() + reminder.repeat_interval_months);
+          nextUpdate.target_date = nd;
+        }
+        await db.collection('reminders').updateOne({ id: reminder.id }, { $set: { ...nextUpdate, last_completed_at: now } });
+      } else {
+        await db.collection('reminders').updateOne({ id: reminder.id }, { $set: { status: 'DONE', completed_at: now } });
+      }
+      delete maint._id;
+      return json({ maintenance: maint });
+    }
     // GET /api/admin/stats - only admins
     if (p[0] === 'admin' && p[1] === 'stats' && method === 'GET') {
       const me = await db.collection('users').findOne({ id: userId }, { projection: { is_admin: 1, _id: 0 } });

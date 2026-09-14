@@ -14,12 +14,17 @@ export default function Landing() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', first_name: '', last_name: '' });
+  const [form, setForm] = useState({ email: '', password: '', first_name: '', last_name: '', remember: true });
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(d => {
       if (d.user) router.push('/dashboard');
     });
+    // Prefill email from localStorage if previously remembered
+    try {
+      const saved = localStorage.getItem('motodna_last_email');
+      if (saved) setForm(f => ({ ...f, email: saved }));
+    } catch (e) {}
   }, [router]);
 
   const submit = async (e) => {
@@ -27,10 +32,15 @@ export default function Landing() {
     setLoading(true);
     try {
       const endpoint = tab === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const payload = tab === 'login' ? { email: form.email, password: form.password, remember: form.remember } : form;
+      const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Errore');
       toast.success(tab === 'login' ? 'Bentornato' : 'Account creato - demo Honda VF400F precaricata');
+      try {
+        if (form.remember) localStorage.setItem('motodna_last_email', form.email);
+        else localStorage.removeItem('motodna_last_email');
+      } catch (err) {}
       router.push('/dashboard');
     } catch (err) {
       toast.error(err.message);
@@ -96,6 +106,10 @@ export default function Landing() {
                   <form onSubmit={submit} className="space-y-4 mt-4">
                     <div><Label>Email</Label><Input type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="tu@motodna.app" /></div>
                     <div><Label>Password</Label><Input type="password" required value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" /></div>
+                    <label className="flex items-center gap-2 text-sm text-neutral-300 select-none cursor-pointer">
+                      <input type="checkbox" checked={form.remember} onChange={e => setForm({ ...form, remember: e.target.checked })} className="w-4 h-4 rounded border-white/20 bg-neutral-900 accent-orange-500" />
+                      Ricorda credenziali (90 giorni)
+                    </label>
                     <Button type="submit" disabled={loading} className="w-full bg-orange-600 hover:bg-orange-500">{loading ? '...' : 'Accedi'} <ArrowRight className="w-4 h-4 ml-1" /></Button>
                   </form>
                 </TabsContent>

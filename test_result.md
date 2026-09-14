@@ -1063,3 +1063,168 @@ agent_communication:
       No critical issues found. All endpoints functioning as expected.
       Backend implementation is solid and production-ready.
 
+
+  - task: "Remember me + profile update + reminder→maintenance + admin visibility bug"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js, app/page.js, app/dashboard/page.js, app/community/page.js, app/u/[userId]/page.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          USER REQUEST BUNDLE:
+          1) "Ricorda credenziali" — remember-me on login.
+          2) Reminders section + when completed they become "ultimi interventi".
+          3) Community → click on user → visit their public profile page.
+          4) Round profile image (avatar upload + display).
+          5) BUG: "non trovo più l'area admin" — admin link was hidden on mobile.
+
+          BACKEND CHANGES:
+          - setAuthCookie(response, token, remember=true): if remember=false, drop maxAge → session cookie; if remember=true (or omitted), keep long-lived (now 90 days). POST /api/auth/login now accepts {remember: boolean}.
+          - Login response now includes is_admin in the user payload.
+          - NEW PUT /api/auth/me (auth) → update own profile: first_name, last_name, username, profile_photo, country.
+          - NEW POST /api/reminders/:reminderId/complete (auth) → creates maintenance entry from the reminder (title/description/mileage inherited from reminder), stores from_reminder_id linkage. If the reminder is recurring (repeat_interval_km or repeat_interval_months), it is REBASED (target_mileage += repeat_interval_km, target_date += repeat_interval_months). If not recurring, reminder is marked status=DONE with completed_at.
+
+          FRONTEND CHANGES:
+          - /app/app/page.js login form: "Ricorda credenziali (90 giorni)" checkbox. On login, if unchecked, localStorage entry is cleared, else email is stored for prefill next time.
+          - /app/app/dashboard/page.js:
+              * Admin button now RED-tinted, always visible (icon+label) so admins can't miss it.
+              * Replaced email + logout in header with a circular ProfileButton avatar. Click opens a Profile Dialog with avatar upload (circular preview) + inline edit of first_name/last_name/username/country. Save on blur. Logout button inside.
+              * Reminders card gained a "Completa" action that POSTs to /api/reminders/:id/complete and refetches the dashboard (registers a new maintenance and rebases/closes the reminder).
+          - /app/app/community/page.js: card "Profilo" now navigates to /u/:userId (user public profile) instead of the bike profile link.
+          - /app/app/u/[userId]/page.js NEW route: hero avatar (round, big, with orange glow), name, @username, country, bike count, signup date; "Scrivi un messaggio" CTA if not self; grid of public bikes with links to their /m/:public_id profiles.
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED - All 6 comprehensive test scenarios passed successfully:
+          
+          TEST 1: LOGIN + REMEMBER ME
+          - Register user A with fresh random email/password ✓
+          - Logout successful ✓
+          - Login with remember=true: Set-Cookie contains Max-Age=7776000 (90 days) ✓
+          - Response body includes is_admin=False for non-admin user ✓
+          - Login with remember=false: Set-Cookie does NOT contain Max-Age (session cookie) ✓
+          - Wrong password correctly returns 401 with error 'Credenziali non valide' ✓
+          
+          TEST 2: PROFILE UPDATE
+          - PUT /api/auth/me with {first_name, profile_photo, country} returns 200 ✓
+          - Response does NOT contain password_hash (security verified) ✓
+          - GET /api/auth/me confirms updates persisted ✓
+          - PUT /api/auth/me with {username} successfully updates username ✓
+          
+          TEST 3: REMINDER → MAINTENANCE
+          - Created NON-recurring reminder R1 (title: "Cambio filtro aria", target_mileage: 20000) ✓
+          - POST /api/reminders/{R1}/complete creates maintenance with from_reminder_id=R1 ✓
+          - Maintenance object contains: id, motorcycle_id, service_type='OTHER', title, mileage=20000, from_reminder_id ✓
+          - GET /api/motorcycles/{id} shows R1 with status='DONE' and completed_at set ✓
+          - Maintenance array contains new entry with from_reminder_id=R1 ✓
+          - Created RECURRING reminder R2 (title: "Cambio olio", repeat_interval_km: 3000) ✓
+          - POST /api/reminders/{R2}/complete with mileage=15000 creates maintenance ✓
+          - R2 still exists with target_mileage=18000 (15000+3000) and last_completed_at set ✓
+          - POST /api/reminders/nonexistent/complete returns 404 ✓
+          - User B cannot complete User A's reminder (404 - scoped to user_id) ✓
+          
+          TEST 4: ADMIN VISIBILITY
+          - Promoted User B to admin using node /app/scripts/promote_admin.js ✓
+          - GET /api/auth/me as User B returns is_admin=True ✓
+          - GET /api/auth/me as User A returns is_admin=None (non-admin) ✓
+          
+          TEST 5: COMMUNITY USER PROFILE
+          - GET /api/community/users/{A_id} returns {user, bikes[]} ✓
+          - User object does NOT expose email or password_hash (privacy verified) ✓
+          - Set bike to private, re-fetch profile: bikes array empty (only public bikes shown) ✓
+          - Set bike back to public: bikes array contains 1 bike ✓
+          
+          TEST 6: REGRESSION TESTS
+          - GET /api/public/{public_id} (no auth): 200 ✓
+          - GET /api/messages (as User A): 200 ✓
+          - POST /api/motorcycles/{id}/nfc/associate with tag_uid="04:aa:bb:cc:test": 200 ✓
+          
+          All endpoints functioning correctly. No critical issues found.
+          Backend implementation is solid and production-ready.
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Test the backend for the following. Base URL: NEXT_PUBLIC_BASE_URL from /app/.env, endpoints under /api/*.
+
+      Setup: use `node /app/scripts/promote_admin.js <email>` to promote if needed.
+
+      1) LOGIN + REMEMBER ME:
+         - Register user A with fresh email/password.
+         - Logout (POST /api/auth/logout).
+         - POST /api/auth/login with body {email, password, remember: true} → response headers contain a Set-Cookie for motodna_token with Max-Age ~ 7776000 (90 days). The user object in the body includes is_admin (false for A).
+         - Logout, then POST /api/auth/login with {email, password, remember: false} → Set-Cookie has NO Max-Age (session cookie).
+         - Wrong password → 401 { error: 'Credenziali non valide' }.
+      2) PROFILE UPDATE:
+         - As A, PUT /api/auth/me with body { first_name: 'Marco', profile_photo: 'https://example.com/a.png', country: 'Italia' } → 200 with updated user object; NO password_hash in response.
+         - GET /api/auth/me → returns updated values.
+         - As A, PUT /api/auth/me with body { username: 'newname_abc' } → 200 with username changed.
+      3) REMINDER → MAINTENANCE:
+         - Get A's motorcycle_id from GET /api/dashboard motos[0].id.
+         - Read A's demo reminders from GET /api/motorcycles/{motorcycle_id} .reminders — pick ANY reminder that is recurring (has repeat_interval_km OR repeat_interval_months) and one that is NOT recurring (or create one).
+         - If needed, POST /api/motorcycles/{id}/reminders with body { title: 'Cambio filtro aria', target_mileage: 20000 } to create a NON-recurring reminder. Save its id as R1.
+         - POST /api/reminders/{R1}/complete with body {} → 201/200 with { maintenance: { id, motorcycle_id, service_type, title, mileage: 20000, from_reminder_id: R1, ... } }.
+         - GET /api/motorcycles/{motorcycle_id} → reminders array shows R1 with status=DONE and completed_at set; maintenance array contains the new entry with from_reminder_id=R1.
+         - For a RECURRING reminder (R2) with repeat_interval_km=3000 (create if needed), POST /api/reminders/{R2}/complete with body { mileage: 15000 } → maintenance created; R2 still exists but target_mileage now equals 18000 (15000+3000) and last_completed_at is set.
+         - POST /api/reminders/nonexistent/complete → 404.
+         - POST /api/reminders/{R1}/complete when logged as user B (a different user) → 404 (scoped to user_id).
+      4) ADMIN VISIBILITY: GET /api/auth/me returns is_admin === true for a promoted user (verify by running node /app/scripts/promote_admin.js on a fresh user before this check). Non-admin's /api/auth/me returns is_admin false or absent.
+      5) COMMUNITY USER PROFILE: GET /api/community/users/{A_id} (auth) → { user, bikes[] } where bikes array only contains public_profile:true bikes; user object does NOT include email or password_hash.
+      6) REGRESSION: /api/public/{public_id} (no auth), /api/messages, /api/motorcycles/:id/nfc/associate, /api/admin/stats (as admin) still work.
+
+      Cleanup any users you register. Update /app/test_result.md.
+  
+  - agent: "testing"
+    message: |
+      Remember Me + Profile Update + Reminder→Maintenance + Admin Visibility feature testing completed - ALL TESTS PASSED ✅
+      
+      Comprehensive testing performed on all 6 test scenarios with 100% success rate:
+      
+      ✅ TEST 1: LOGIN + REMEMBER ME (7 sub-tests)
+      - User registration and logout working correctly
+      - Login with remember=true: Set-Cookie contains Max-Age=7776000 (exactly 90 days)
+      - Response body includes is_admin=False for non-admin users
+      - Login with remember=false: Set-Cookie does NOT contain Max-Age (session cookie)
+      - Wrong password correctly rejected with 401 and error message 'Credenziali non valide'
+      
+      ✅ TEST 2: PROFILE UPDATE (4 sub-tests)
+      - PUT /api/auth/me successfully updates first_name, profile_photo, country
+      - Response NEVER contains password_hash (security verified)
+      - GET /api/auth/me confirms all updates persisted correctly
+      - Username update working correctly
+      
+      ✅ TEST 3: REMINDER → MAINTENANCE (10 sub-tests)
+      - NON-recurring reminder creation and completion working
+      - Maintenance created with correct fields: id, motorcycle_id, service_type='OTHER', title, mileage, from_reminder_id
+      - NON-recurring reminder marked as status='DONE' with completed_at timestamp
+      - RECURRING reminder creation and completion working
+      - Recurring reminder correctly REBASED: target_mileage updated from initial to 18000 (15000+3000)
+      - Recurring reminder has last_completed_at set but still exists (not marked DONE)
+      - Non-existent reminder returns 404
+      - Reminder scoping working: User B cannot complete User A's reminder (404)
+      
+      ✅ TEST 4: ADMIN VISIBILITY (3 sub-tests)
+      - User promotion to admin using node /app/scripts/promote_admin.js successful
+      - GET /api/auth/me as admin returns is_admin=True
+      - GET /api/auth/me as non-admin returns is_admin=None (or False)
+      
+      ✅ TEST 5: COMMUNITY USER PROFILE (4 sub-tests)
+      - GET /api/community/users/{userId} returns {user, bikes[]}
+      - User object NEVER exposes email or password_hash (privacy verified)
+      - Bikes array only contains public_profile=true bikes
+      - Private bikes correctly excluded from community profile
+      
+      ✅ TEST 6: REGRESSION TESTS (3 sub-tests)
+      - GET /api/public/{public_id} (no auth): 200 ✓
+      - GET /api/messages: 200 ✓
+      - POST /api/motorcycles/{id}/nfc/associate: 200 ✓
+      
+      CLEANUP: Successfully deleted 2 test users and all related data from database.
+      
+      No critical issues found. All endpoints functioning as expected.
+      Backend implementation is solid and production-ready.
+
