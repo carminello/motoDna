@@ -5,6 +5,7 @@ import { getDb } from '@/lib/mongodb';
 import { hashPassword, verifyPassword, signToken, getUserFromRequest } from '@/lib/auth';
 import { generatePublicId, generateTagUid, generatePublicToken, generateTransferCode } from '@/lib/publicId';
 import { seedDemoForUser } from '@/lib/seedDemo';
+import { isAllowed, getClientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -33,7 +34,10 @@ async function handler(request, { params }) {
   try {
     const db = await getDb();
 
-    // ============== FILES (public GET) ==============
+    // ============== FILES ==============
+    // Public files (default): open access + long CDN cache.
+    // Private files (metadata.visibility === 'private'): require auth
+    // AND caller must be the uploader (owner).
     if (p[0] === 'files' && p[1] && method === 'GET') {
       const idStr = p[1].split('.')[0]; // strip extension if any
       if (!ObjectId.isValid(idStr)) return new NextResponse('Not found', { status: 404 });
@@ -42,6 +46,15 @@ async function handler(request, { params }) {
       const files = await bucket.find({ _id: fileId }).toArray();
       if (!files[0]) return new NextResponse('Not found', { status: 404 });
       const file = files[0];
+      const meta = file.metadata || {};
+      const isPrivate = meta.visibility === 'private';
+      if (isPrivate) {
+        const caller = await getUserFromRequest(request);
+        if (!caller) return new NextResponse('Unauthorized', { status: 401 });
+        if (!meta.uploaded_by || caller.sub !== meta.uploaded_by) {
+          return new NextResponse('Forbidden', { status: 403 });
+        }
+      }
       const stream = bucket.openDownloadStream(fileId);
       const webStream = new ReadableStream({
         start(controller) {
@@ -55,7 +68,10 @@ async function handler(request, { params }) {
         headers: {
           'Content-Type': file.contentType || 'application/octet-stream',
           'Content-Length': String(file.length),
-          'Cache-Control': 'public, max-age=31536000, immutable',
+          // Public files: aggressive CDN cache; private: no cache.
+          'Cache-Control': isPrivate
+            ? 'private, no-store'
+            : 'public, max-age=31536000, immutable',
         },
       });
     }
@@ -87,6 +103,17 @@ async function handler(request, { params }) {
 
     if (path === '/auth/login' && method === 'POST') {
       const { email, password, remember } = await request.json();
+      // Rate limit: 5 attempts per 60s per (IP + email lowercased).
+      // This blocks both single-IP bursts and slow attackers pivoting emails.
+      const ip = getClientIp(request);
+      const key = `login:${ip}:${(email || '').toLowerCase()}`;
+      const rl = isAllowed(key, { max: 5, windowMs: 60_000 });
+      if (!rl.allowed) {
+        return json(
+          { error: `Troppi tentativi di accesso, riprova tra ${rl.retryAfterSec}s.` },
+          429,
+        );
+      }
       const user = await db.collection('users').findOne({ email: (email || '').toLowerCase() });
       if (!user) return json({ error: 'Credenziali non valide' }, 401);
       const ok = await verifyPassword(password, user.password_hash);
@@ -211,9 +238,17 @@ async function handler(request, { params }) {
       );
       const now = new Date();
       const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      // Ensure uniqueness of the transfer code (collision probability is
+      // negligible with 33^8 space but retry defensively).
+      let code = generateTransferCode();
+      for (let i = 0; i < 5; i++) {
+        const clash = await db.collection('transfers').findOne({ code }, { projection: { _id: 1 } });
+        if (!clash) break;
+        code = generateTransferCode();
+      }
       const transfer = {
         id: uuidv4(),
-        code: generateTransferCode(),
+        code,
         motorcycle_id: moto.id,
         from_user_id: userId,
         to_user_id: null,
@@ -249,11 +284,13 @@ async function handler(request, { params }) {
     }
 
     // Upload endpoint
+    // Accepts optional `visibility` = 'public' | 'private' (default: public).
+    // Private files can only be downloaded by the uploader.
     if (path === '/uploads' && method === 'POST') {
       const contentType = request.headers.get('content-type') || '';
       const MAX = 10 * 1024 * 1024;
       const ALLOWED = new Set(['image/jpeg','image/png','image/webp','image/avif','image/gif','application/pdf']);
-      let bytes, ctype, originalName;
+      let bytes, ctype, originalName, visibility = 'public';
       if (contentType.includes('multipart/form-data')) {
         const form = await request.formData();
         const entry = form.get('file');
@@ -261,6 +298,8 @@ async function handler(request, { params }) {
         bytes = Buffer.from(await entry.arrayBuffer());
         ctype = entry.type || 'application/octet-stream';
         originalName = entry.name || 'file';
+        const v = String(form.get('visibility') || '').toLowerCase();
+        if (v === 'private') visibility = 'private';
       } else if (contentType.includes('application/json')) {
         const body = await request.json();
         const m = /^data:([^;]+);base64,(.+)$/.exec(body.data || '');
@@ -268,6 +307,7 @@ async function handler(request, { params }) {
         ctype = m[1];
         bytes = Buffer.from(m[2], 'base64');
         originalName = body.filename || `upload-${uuidv4()}`;
+        if (String(body.visibility || '').toLowerCase() === 'private') visibility = 'private';
       } else {
         return json({ error: 'Content-Type non supportato' }, 400);
       }
@@ -278,13 +318,16 @@ async function handler(request, { params }) {
       const id = new ObjectId();
       const safeName = String(originalName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
       await new Promise((resolve, reject) => {
-        const stream = bucket.openUploadStreamWithId(id, safeName, { contentType: ctype, metadata: { uploaded_by: userId } });
+        const stream = bucket.openUploadStreamWithId(id, safeName, {
+          contentType: ctype,
+          metadata: { uploaded_by: userId, visibility },
+        });
         stream.on('finish', resolve);
         stream.on('error', reject);
         stream.end(bytes);
       });
       const url = `/api/files/${id.toHexString()}`;
-      return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length }, 201);
+      return json({ id: id.toHexString(), url, contentType: ctype, size: bytes.length, visibility }, 201);
     }
 
     // PUT /api/auth/me - update own profile

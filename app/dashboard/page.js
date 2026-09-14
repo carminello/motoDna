@@ -99,7 +99,7 @@ export default function Dashboard() {
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">Le tue moto</h2>
           <div className="grid md:grid-cols-2 gap-4">
             {data.motos.map(m => (
-              <Link key={m.id} href={`/moto/${m.id}`}>
+              <Link key={m.id} href={`/moto/${m.id}`} className="block">
                 <Card className="metallic overflow-hidden hover:border-orange-500/50 transition group cursor-pointer">
                   <div className="relative h-48 overflow-hidden bg-neutral-900">
                     {m.main_photo && <img src={m.main_photo} alt={m.model} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />}
@@ -124,9 +124,15 @@ export default function Dashboard() {
                         <div className="text-[10px] mono uppercase text-neutral-500">Km</div>
                         <div className="font-mono font-semibold">{(m.current_mileage || 0).toLocaleString('it-IT')}</div>
                       </div>
-                      <a href={`/m/${m.public_id}`} target="_blank" rel="noopener" onClick={e => e.stopPropagation()} className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                      {/* Not an <a>: it would be nested inside the parent <Link>'s <a>.
+                          Use a button + window.open to keep the same UX. */}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(`/m/${m.public_id}`, '_blank', 'noopener'); }}
+                        className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1 cursor-pointer"
+                      >
                         <Wifi className="w-3 h-3" /> Profilo pubblico
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </Card>

@@ -1228,3 +1228,215 @@ agent_communication:
       No critical issues found. All endpoints functioning as expected.
       Backend implementation is solid and production-ready.
 
+
+##################################################################
+# PHASE 1 SECURITY HARDENING — run started by main agent
+##################################################################
+
+agent_communication:
+  - agent: "main"
+    message: |
+      PHASE 1 (Bug Critici) del report MOTODNA_TECHNICAL_AUDIT.md è stata applicata.
+      Base URL: NEXT_PUBLIC_BASE_URL da /app/.env, endpoint /api/*.
+
+      MODIFICHE APPLICATE (nessuna nuova feature, solo hardening):
+      A) JWT: rimosso fallback 'dev_secret'. `lib/auth.js` fa THROW se JWT_SECRET
+         è mancante o < 32 char. `.env` aggiornato con un nuovo secret 64 char
+         generato con crypto.randomBytes → TUTTE LE SESSIONI PRECEDENTI SONO
+         INVALIDATE (deliberato).
+      B) FILES: `/api/files/:id` distingue ora tra file pubblici e privati via
+         metadata GridFS `visibility`. File senza visibility (legacy) restano
+         pubblici per retro-compatibilità. File privati richiedono cookie di
+         auth E ownership (`metadata.uploaded_by === auth.sub`). `/api/uploads`
+         ora accetta un campo form `visibility` (default: 'public'). Il tab
+         "Documenti" in moto/[id]/page.js invia `visibility=private`.
+      C) TOKENS: `lib/publicId.js` usa ora crypto.randomInt al posto di Math.random.
+         Formati invariati (MDNA-YY-XXX-XXXXX, transfer 8 char, tag_uid 12 char,
+         public_token 24 char). Aggiunto retry anti-collisione (max 5) nella
+         generazione del transfer code.
+      D) RATE LIMIT: nuovo `lib/rateLimit.js` (in-memory, single-instance).
+         Applicato a POST /api/auth/login → 5 tentativi / 60s per chiave
+         (IP + email). Ritorna 429 con `retryAfterSec` in caso di superamento.
+      E) HYDRATION FIX: dashboard/page.js — il link "Profilo pubblico" era un
+         `<a>` dentro `<Link>` (che genera `<a>`). Sostituito con un `<button>`
+         che chiama window.open() → apre in nuova tab, UX identica, niente più
+         hydration warning.
+      F) MONGO INDEXES: nuovo `lib/initIndexes.js` con TUTTI gli indici della
+         sezione 3.1 del report. Chiamato via `getDb()` — idempotente, non
+         droppa mai indici esistenti, fallback non-unique se ci sono duplicati
+         legacy. Indici già verificati creati con successo su localhost.
+
+      COSA TESTARE (backend):
+
+      Prima cosa: bisogna ri-autenticarsi perché il JWT_SECRET è cambiato.
+
+      1) AUTH: registra un nuovo utente A (email fresca). Verifica:
+         - POST /api/auth/register → 200 + set-cookie motodna_token.
+         - GET /api/auth/me con cookie → user object (no password_hash).
+         - POST /api/auth/logout → cookie svuotato.
+         - POST /api/auth/login con password corretta → 200 + cookie.
+         - POST /api/auth/login con password errata → 401.
+
+      2) RATE LIMIT LOGIN: dalla STESSA IP+email fai 6 login CONSECUTIVI errati.
+         Il 6° deve rispondere 429 con body `{ error: "Troppi tentativi ... " }`.
+         Dopo 60s la finestra si resetta.
+
+      3) MOTORCYCLE CRUD (regressione):
+         - POST /api/motorcycles con {brand, model, year} → 200 + public_id in
+           formato MDNA-YY-XXX-XXXXX (5 char alfanumerici finali).
+         - GET /api/motorcycles/:id → dati completi.
+         - PUT /api/motorcycles/:id → aggiornamento OK.
+
+      4) UPLOAD PUBBLICO (regressione):
+         - POST /api/uploads con multipart file image (SENZA campo visibility) →
+           201 + { url, id, visibility: 'public' }.
+         - GET dell'url ritornato SENZA COOKIE → 200 con Content-Type image/*
+           e Cache-Control public,max-age=31536000,immutable.
+
+      5) UPLOAD PRIVATO + OWNERSHIP:
+         - POST /api/uploads con multipart file + form field
+           visibility=private → 201 + { visibility: 'private' }.
+         - GET dell'url SENZA COOKIE → 401.
+         - GET dell'url CON COOKIE dell'uploader → 200 con Cache-Control
+           `private, no-store`.
+         - Registra un SECONDO utente B, prendi il suo cookie e prova la GET
+           dello stesso file → 403 (ownership).
+
+      6) TRANSFER CODE:
+         - Come A, POST /api/motorcycles/:id/transfer → 200 con transfer.code
+           di 8 char alfanumerici (senza confusi 0/O/1/I).
+         - Genera 10 codici e verifica che siano tutti diversi.
+         - GET /api/transfer/{code} → 200 con preview.
+
+      7) NFC ASSOCIATE (regressione):
+         - POST /api/motorcycles/:id/nfc/associate con body {tag_uid: 'test-abc'}
+           → 200 con nfc.tag_uid = 'test-abc'.
+
+      8) PUBLIC PROFILE (regressione):
+         - GET /api/public/{public_id} senza auth → 200 se la moto ha
+           public_profile:true.
+
+      9) INDEX SANITY (non richiede test API): al termine, verifica che ci
+         siano dati indicizzati senza errori nei log del backend
+         (/var/log/supervisor/nextjs.out.log). Nessun errore
+         "createIndex failed" nella pipeline standard.
+
+      NON serve testare frontend: la fase è interamente lato server/hardening.
+      Cleanup: cancella gli utenti A/B creati.
+
+
+
+  - agent: "testing"
+    message: |
+      PHASE 1 SECURITY HARDENING testing completed - CRITICAL BUGS FOUND ❌
+      
+      Comprehensive testing performed on all 9 test groups. Results:
+      
+      ✅ PASSED (4/9 groups):
+      - Group 1: Auth Baseline - All 6 tests passed
+      - Group 7: NFC Associate - Regression test passed
+      - Group 8: Public Profile - Regression test passed, no sensitive fields exposed
+      - Group 9: Mongo Indexes - No createIndex errors in logs
+      
+      ❌ FAILED (5/9 groups) - CRITICAL BUGS FOUND:
+      
+      **BUG 1: ALNUM constant includes confused character 'I'**
+      - File: /app/lib/publicId.js line 6
+      - Current: const ALNUM = 'ABCDEFGHIJKLMNPQRSTUVWXYZ23456789';
+      - Issue: Includes 'I' which is a confused character (looks like 1)
+      - Fix: const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; (remove I)
+      - Impact: Transfer codes, public_id suffixes, tag_uid, and public_token can contain 'I'
+      - Evidence: Generated transfer code 'FNIHNXI2' contains 'I'
+      
+      **BUG 2: ALPHA constant includes confused characters 'I' and 'O'**
+      - File: /app/lib/publicId.js line 5
+      - Current: const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      - Issue: Includes 'I' (looks like 1) and 'O' (looks like 0)
+      - Fix: const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; (remove I and O)
+      - Impact: Model part of public_id can contain confused characters
+      
+      **BUG 3: Cache-Control headers overridden by Cloudflare/Next.js**
+      - Expected: public, max-age=31536000, immutable (for public files)
+      - Expected: private, no-store (for private files)
+      - Actual: no-store, no-cache, must-revalidate (for ALL files)
+      - Root cause: Cloudflare or Next.js middleware overriding headers
+      - Code is correct in route.js lines 72-74, but headers not reaching client
+      - This is a DEPLOYMENT/INFRASTRUCTURE issue, not a code bug
+      - Needs investigation: Check Cloudflare settings or Next.js middleware
+      
+      DETAILED TEST RESULTS:
+      
+      Group 2: Rate Limit Login
+      - ❌ Test failed due to previous login attempts in test suite
+      - ✅ Verified separately: Rate limit works correctly (5 attempts allowed, 6th blocked)
+      - Implementation is CORRECT, test just needs adjustment
+      
+      Group 3: Tokens and Public IDs
+      - ❌ Test pattern incorrect: "R1" model becomes "R1X" (padded to 3 chars)
+      - ✅ Public_id format correct: MDNA-24-CB7-7PXK8 (no confused chars in this sample)
+      - ⚠️  But ALNUM includes 'I', so future IDs may contain confused chars
+      
+      Group 4: Transfer Code
+      - ❌ Generated code 'FNIHNXI2' contains 'I' (confused character)
+      - Root cause: ALNUM constant includes 'I'
+      
+      Group 5: Upload Public (Regression)
+      - ✅ Upload works, visibility='public' set correctly
+      - ❌ Cache-Control headers wrong (deployment issue, not code bug)
+      
+      Group 6: Upload Private + Ownership (CRITICAL SECURITY)
+      - ✅ Private file upload works, visibility='private' set correctly
+      - ✅ Ownership check works: 401 without auth, 403 for wrong user
+      - ✅ Uploader can access their private files
+      - ❌ Cache-Control headers wrong (deployment issue, not code bug)
+      
+      PRIORITY FIXES REQUIRED:
+      1. HIGH: Fix ALNUM constant in /app/lib/publicId.js (remove 'I')
+      2. HIGH: Fix ALPHA constant in /app/lib/publicId.js (remove 'I' and 'O')
+      3. MEDIUM: Investigate Cache-Control header override (Cloudflare/Next.js config)
+      
+      SECURITY ASSESSMENT:
+      - ✅ JWT_SECRET rotation working (all previous sessions invalidated)
+      - ✅ Rate limiting working correctly (5 attempts per 60s per IP+email)
+      - ✅ Private file ownership check working correctly
+      - ❌ Token generation uses confused characters (needs fix)
+      - ⚠️  Cache-Control headers not working (deployment issue)
+
+  - agent: "main"
+    message: |
+      RISPOSTA MAIN AGENT AI RILIEVI DEL TESTING AGENT (Phase 1):
+
+      1) ALPHA/ALNUM includono 'I' e 'O' → NON è una regressione della Phase 1.
+         È il comportamento pre-esistente del seed della codebase. L'utente ha
+         esplicitamente richiesto "Mantieni il formato attuale dei codici dove
+         possibile, così da non rompere i dati esistenti". Modificare l'alfabeto
+         invaliderebbe visivamente tutti i public_id già emessi (compresa la
+         moto demo dell'admin esistente in produzione). È una miglioria UX
+         legittima, ma va trattata come una nuova task nella FASE 2/3, non
+         come bug fix di FASE 1. NESSUNA MODIFICA APPLICATA.
+
+      2) Cache-Control sovrascritto ("no-store, no-cache, must-revalidate"):
+         confermata come issue del proxy Cloudflare del preview environment,
+         non del codice. Verificato con curl diretto su localhost:3000
+         (bypassando il proxy):
+           - Public file: cache-control = "public, max-age=31536000, immutable" ✓
+           - Private file (owner): cache-control = "private, no-store" ✓
+           - Private file (no auth): 401 ✓
+           - Private file (other user): 403 ✓
+         Il fix in `route.js` è quindi CORRETTO. Il preview.emergentagent.com
+         è dietro un CDN che injetta il proprio Cache-Control per motivi
+         infrastrutturali. In produzione va configurato il CDN per rispettare
+         i cache header dell'origine sulla route /api/files/*. NESSUNA
+         MODIFICA APPLICATA — è deployment-side.
+
+      3) Tutte le altre feature verificate ✅:
+         - JWT rotation
+         - Rate limit login (5/60s per IP+email)
+         - Ownership private files (401/403/200 corretti)
+         - MongoDB indexes creati
+         - NFC associate regression
+         - Public profile regression
+         - Auth baseline regression
+
+      FASE 1 CHIUSA. Non procedo con FASE 2 come da istruzioni utente.
+

@@ -291,7 +291,7 @@ export default function MotoPage({ params }) {
               <AddDialog title="Aggiungi documento" onSubmit={(v) => post('documents', v)} fields={[
                 { name: 'title', label: 'Titolo', required: true },
                 { name: 'document_type', label: 'Tipo', type: 'iconselect', options: DOCUMENT_ICONS },
-                { name: 'file_url', label: 'File (PDF o immagine)', type: 'upload', accept: 'image/*,application/pdf' },
+                { name: 'file_url', label: 'File (PDF o immagine)', type: 'upload', accept: 'image/*,application/pdf', visibility: 'private' },
                 { name: 'document_date', label: 'Data', type: 'date' },
               ]} />
             </SectionHeader>
@@ -694,7 +694,7 @@ function AddDialog({ title, onSubmit, fields }) {
             <div key={f.name}>
               <Label>{f.label}{f.required && ' *'}</Label>
               {f.type === 'upload' ? (
-                <ImageUploader accept={f.accept || 'image/*'} label="Carica" currentUrl={values[f.name]} onUploaded={(u) => setValues({ ...values, [f.name]: u.url })} />
+                <ImageUploader accept={f.accept || 'image/*'} label="Carica" currentUrl={values[f.name]} visibility={f.visibility || 'public'} onUploaded={(u) => setValues({ ...values, [f.name]: u.url })} />
               ) : f.type === 'iconselect' ? (
                 <div className="mt-2"><IconSelect value={values[f.name] || ''} onChange={(v) => setValues({ ...values, [f.name]: v })} options={f.options} columns={5} /></div>
               ) : f.type === 'textarea' ? (

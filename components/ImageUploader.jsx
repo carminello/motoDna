@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
-export default function ImageUploader({ onUploaded, accept = 'image/*', label = 'Carica immagine', currentUrl = null }) {
+export default function ImageUploader({ onUploaded, accept = 'image/*', label = 'Carica immagine', currentUrl = null, visibility = 'public' }) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(currentUrl);
   const inputRef = useRef(null);
@@ -17,6 +17,7 @@ export default function ImageUploader({ onUploaded, accept = 'image/*', label = 
     try {
       const form = new FormData();
       form.append('file', file);
+      if (visibility === 'private') form.append('visibility', 'private');
       const res = await fetch('/api/uploads', { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload fallito');
