@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import Logo from '@/components/Logo';
+import { findCategoryMeta } from '@/lib/categoryIcons';
 import { PublicProfileSkeleton } from '@/components/skeletons';
 
 export default function PublicProfile({ params }) {
@@ -148,8 +149,8 @@ export default function PublicProfile({ params }) {
                 <div key={t.id} className="relative">
                   <div className="absolute -left-[41px] w-4 h-4 rounded-full bg-orange-500 border-4 border-black shadow-[0_0_20px_rgba(238,100,50,0.6)]" />
                   <Card className="metallic p-5 hover:border-orange-500/30 transition">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="outline" className="mono text-[10px] border-orange-500/30 text-orange-400">{t.event_type}</Badge>
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <CategoryPill kind="timeline" value={t.event_type} />
                       <span className="text-xs text-neutral-500 mono">{new Date(t.event_date).toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                       {t.mileage > 0 && <span className="text-xs text-neutral-500 mono">· {t.mileage.toLocaleString('it-IT')} km</span>}
                     </div>
@@ -169,8 +170,8 @@ export default function PublicProfile({ params }) {
                 <Card key={m.id} className="metallic p-4 hover:border-orange-500/30 transition">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="mono text-[10px] border-white/20">{m.service_type}</Badge>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CategoryPill kind="maintenance" value={m.service_type} />
                         <span className="font-semibold">{m.title}</span>
                         {m.verified && <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">✓ Certificato</Badge>}
                       </div>
@@ -192,7 +193,7 @@ export default function PublicProfile({ params }) {
             <div className="grid md:grid-cols-2 gap-3">
               {modifications.map(m => (
                 <Card key={m.id} className="metallic p-5">
-                  <Badge variant="outline" className="mono text-[10px] border-orange-500/30 text-orange-400 mb-2">{m.category}</Badge>
+                  <div className="mb-2"><CategoryPill kind="modification" value={m.category} /></div>
                   <div className="text-lg font-bold">{m.name}</div>
                   {(m.brand || m.model) && <div className="text-xs mono text-neutral-500 mb-2">{m.brand} {m.model}</div>}
                   {m.description && <div className="text-sm text-neutral-400 mt-2">{m.description}</div>}
@@ -248,6 +249,19 @@ function StatMini({ icon: Icon, label, value }) {
       <div className="text-2xl font-bold font-mono">{value}</div>
       <div className="text-[10px] mono uppercase text-neutral-500 tracking-widest">{label}</div>
     </div>
+  );
+}
+
+// Same visual treatment as the personal management page, so items look
+// consistent whether you're the owner or a public visitor scanning the tag.
+function CategoryPill({ kind, value }) {
+  const meta = findCategoryMeta(kind, value);
+  const Icon = meta.icon;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-orange-500/25 bg-orange-500/5 text-[10px] mono uppercase tracking-wider text-orange-300">
+      <Icon className="w-3 h-3 text-orange-400" strokeWidth={1.8} />
+      {meta.label}
+    </span>
   );
 }
 

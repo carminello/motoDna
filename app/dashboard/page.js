@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
   const [unread, setUnread] = useState(0);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -31,6 +32,19 @@ export default function Dashboard() {
       setUser(me.user);
       setData(dash);
       setUnread(un.count || 0);
+      // Show welcome banner only for the first 2 views (per browser).
+      // Counter is stored locally so it's per-device; that's fine for an
+      // onboarding hint. Increment as soon as we know a demo bike exists.
+      try {
+        const hasDemo = (dash.motos || []).some(m => m.is_demo);
+        if (hasDemo) {
+          const seen = parseInt(localStorage.getItem('motodna_welcome_seen') || '0', 10) || 0;
+          if (seen < 2) {
+            setShowWelcome(true);
+            localStorage.setItem('motodna_welcome_seen', String(seen + 1));
+          }
+        }
+      } catch (e) {}
     });
   }, [router]);
 
@@ -72,7 +86,7 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {data.motos.some(m => m.is_demo) && (
+        {showWelcome && data.motos.some(m => m.is_demo) && (
           <Card className="metallic border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-red-600/5 p-5 mb-6 flex items-start gap-3">
             <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center shrink-0">
               <Wrench className="w-5 h-5 text-orange-400" />

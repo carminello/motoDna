@@ -10,15 +10,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, WifiOff, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid, Send, X, Clock as ClockIcon } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, Sparkles, Image as Img, FileText, Wifi, WifiOff, Plus, ExternalLink, Copy, RefreshCw, Bell, Camera, Trash2, Edit3, Eye, EyeOff, Settings, Gauge, Pencil, MessageSquare, LayoutGrid, Send, X, Clock as ClockIcon, AlertTriangle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import Logo from '@/components/Logo';
 import ImageUploader from '@/components/ImageUploader';
 import IconSelect from '@/components/IconSelect';
 import NfcAssociator from '@/components/NfcAssociator';
-import { MAINTENANCE_ICONS, TIMELINE_ICONS, MODIFICATION_ICONS, GALLERY_ICONS, DOCUMENT_ICONS } from '@/lib/categoryIcons';
+import { MAINTENANCE_ICONS, TIMELINE_ICONS, MODIFICATION_ICONS, GALLERY_ICONS, DOCUMENT_ICONS, findCategoryMeta } from '@/lib/categoryIcons';
 import { MotoDetailSkeleton } from '@/components/skeletons';
 
 const MAINT_TYPES = ['ENGINE','OIL','FILTER','BRAKES','TYRES','CHAIN','BATTERY','ELECTRICAL','SUSPENSION','CARBURATION','COOLING','EXHAUST','BODYWORK','OTHER'];
@@ -190,7 +191,7 @@ export default function MotoPage({ params }) {
               {maintenance.map(m => (
                 <Card key={m.id} className="metallic p-4 flex items-center justify-between gap-3">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2"><Badge variant="outline" className="mono text-[10px]">{m.service_type}</Badge><span className="font-semibold">{m.title}</span></div>
+                    <div className="flex items-center gap-2"><CategoryPill kind="maintenance" value={m.service_type} /><span className="font-semibold">{m.title}</span></div>
                     <div className="text-sm text-neutral-400 mt-1">{m.description}</div>
                     <div className="text-xs mono text-neutral-500 mt-2">{new Date(m.date).toLocaleDateString('it-IT')} · {(m.mileage || 0).toLocaleString('it-IT')} km · €{m.cost}</div>
                   </div>
@@ -217,7 +218,7 @@ export default function MotoPage({ params }) {
                   <Card className="metallic p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1"><Badge variant="outline" className="mono text-[10px]">{t.event_type}</Badge><span className="text-xs text-neutral-500 mono">{new Date(t.event_date).toLocaleDateString('it-IT')}</span></div>
+                        <div className="flex items-center gap-2 mb-1"><CategoryPill kind="timeline" value={t.event_type} /><span className="text-xs text-neutral-500 mono">{new Date(t.event_date).toLocaleDateString('it-IT')}</span></div>
                         <div className="font-semibold">{t.title}</div>
                         <div className="text-sm text-neutral-400 mt-1">{t.description}</div>
                       </div>
@@ -247,7 +248,7 @@ export default function MotoPage({ params }) {
                 <Card key={m.id} className="metallic p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <Badge variant="outline" className="mono text-[10px] mb-2">{m.category}</Badge>
+                      <div className="mb-2"><CategoryPill kind="modification" value={m.category} /></div>
                       <div className="font-semibold">{m.name}</div>
                       <div className="text-xs text-neutral-500 mono mb-2">{m.brand} {m.model}</div>
                       <div className="text-sm text-neutral-400">{m.description}</div>
@@ -260,12 +261,16 @@ export default function MotoPage({ params }) {
           </TabsContent>
 
           <TabsContent value="gallery" className="mt-6">
-            <SectionHeader title="Galleria">
-              <AddDialog title="Aggiungi foto" onSubmit={(v) => post('gallery', v)} fields={[
-                { name: 'file_url', label: 'Immagine', required: true, type: 'upload' },
-                { name: 'caption', label: 'Didascalia' },
-                { name: 'category', label: 'Categoria', type: 'iconselect', options: GALLERY_ICONS },
-              ]} />
+            <SectionHeader title={`Galleria (${gallery.length + (moto.main_photo ? 1 : 0)}/3)`}>
+              {(gallery.length + (moto.main_photo ? 1 : 0)) < 3 ? (
+                <AddDialog title="Aggiungi foto" onSubmit={(v) => post('gallery', v)} fields={[
+                  { name: 'file_url', label: 'Immagine', required: true, type: 'upload' },
+                  { name: 'caption', label: 'Didascalia' },
+                  { name: 'category', label: 'Categoria', type: 'iconselect', options: GALLERY_ICONS },
+                ]} />
+              ) : (
+                <span className="text-xs mono text-neutral-500 flex items-center gap-1"><Img className="w-3 h-3" />Limite raggiunto — elimina una foto per aggiungerne un'altra</span>
+              )}
             </SectionHeader>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {gallery.map(g => (
@@ -300,7 +305,7 @@ export default function MotoPage({ params }) {
               {documents.length === 0 && <p className="text-sm text-neutral-500">Nessun documento caricato. I documenti sono privati per default.</p>}
               {documents.map(d => (
                 <Card key={d.id} className="metallic p-3 flex items-center justify-between gap-3">
-                  <div className="flex-1"><Badge variant="outline" className="mono text-[10px] mr-2">{d.document_type}</Badge><span className="font-medium">{d.title}</span></div>
+                  <div className="flex-1 flex items-center gap-2"><CategoryPill kind="document" value={d.document_type} /><span className="font-medium">{d.title}</span></div>
                   <div className="flex items-center gap-2">
                     {d.file_url && <a href={d.file_url} target="_blank" rel="noopener" className="text-xs text-orange-400 hover:underline">Apri</a>}
                     <span className="text-xs text-neutral-500 mono">{d.document_date ? new Date(d.document_date).toLocaleDateString('it-IT') : ''}</span>
@@ -415,6 +420,9 @@ export default function MotoPage({ params }) {
                 </div>
               </div>
             </Card>
+
+            {/* Danger zone — delete motorcycle */}
+            <DangerZone motorcycle={moto} onDeleted={() => router.push('/dashboard')} />
           </TabsContent>
         </Tabs>
       </div>
@@ -677,6 +685,19 @@ function SectionHeader({ title, children }) {
   );
 }
 
+// Category label with its lucide icon — reused everywhere the type of a
+// maintenance / timeline / modification / document item is shown.
+function CategoryPill({ kind, value, className = '' }) {
+  const meta = findCategoryMeta(kind, value);
+  const Icon = meta.icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-white/15 bg-neutral-900/60 text-[10px] mono uppercase tracking-wider text-neutral-300 ${className}`}>
+      <Icon className="w-3 h-3 text-orange-400" strokeWidth={1.8} />
+      {meta.label}
+    </span>
+  );
+}
+
 function AddDialog({ title, onSubmit, fields }) {
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState({});
@@ -716,3 +737,98 @@ function AddDialog({ title, onSubmit, fields }) {
     </Dialog>
   );
 }
+
+function DangerZone({ motorcycle, onDeleted }) {
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+  // We ask the user to type the motorcycle's public ID — it's short, unique
+  // and always visible on the page, so much less error-prone than the model
+  // name (which can repeat across owners) or the plate (which may be hidden).
+  const expected = motorcycle.public_id || '';
+  const canDelete = confirmText.trim().toUpperCase() === expected.toUpperCase() && !busy;
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/motorcycles/${motorcycle.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore');
+      toast.success('Moto eliminata definitivamente');
+      onDeleted();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+      setOpen(false);
+      setConfirmText('');
+    }
+  };
+
+  return (
+    <Card className="metallic p-6 mt-4 border-red-500/25">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
+          <AlertTriangle className="w-5 h-5 text-red-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-red-400 mb-1">Zona pericolosa</h3>
+          <p className="text-sm text-neutral-400">
+            Elimina definitivamente <span className="text-white font-medium">{motorcycle.brand} {motorcycle.model}</span> e tutta la sua storia: manutenzione, timeline, modifiche, foto, documenti, reminders e associazioni NFC.
+            <br />
+            <span className="text-red-400 text-xs">L'operazione NON è reversibile.</span>
+          </p>
+        </div>
+      </div>
+      <AlertDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setConfirmText(''); }}>
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" className="text-red-400 border-red-500/40 hover:bg-red-500/10 w-full sm:w-auto">
+            <Trash2 className="w-4 h-4 mr-2" />Elimina questa moto
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent className="bg-neutral-950 border-red-500/25 max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-400">
+              <AlertTriangle className="w-5 h-5" />Eliminazione definitiva
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-neutral-300">
+                <p>Stai per eliminare <b className="text-white">{motorcycle.brand} {motorcycle.model}</b> (<span className="mono text-orange-400">{expected}</span>). Verranno cancellati:</p>
+                <ul className="list-disc pl-5 text-neutral-400 space-y-0.5 text-xs">
+                  <li>Foto di copertina e galleria (file inclusi)</li>
+                  <li>Documenti privati (file inclusi)</li>
+                  <li>Cronologia manutenzione, timeline, modifiche</li>
+                  <li>Reminders, tag NFC, scansioni, post-it</li>
+                  <li>Eventuali trasferimenti in corso e storia proprietà</li>
+                </ul>
+                <p className="text-red-400 text-xs pt-1">Non ci sarà modo di recuperare i dati.</p>
+                <div className="pt-2">
+                  <p className="text-xs text-neutral-400 mb-1">Per confermare, digita il codice pubblico della moto:</p>
+                  <Input
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                    placeholder={expected}
+                    className="mono text-sm uppercase"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); doDelete(); }}
+              disabled={!canDelete}
+              className="bg-red-600 hover:bg-red-500 text-white disabled:opacity-40"
+            >
+              {busy ? 'Eliminazione...' : 'Elimina definitivamente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+

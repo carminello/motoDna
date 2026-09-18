@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Users, Bike, MessageSquare, Activity, TrendingUp, ShieldCheck, Camera, Wrench, Clock, Sparkles, Wifi, UserCheck, Calendar } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
+import { ArrowLeft, Users, Bike, MessageSquare, Activity, TrendingUp, ShieldCheck, Camera, Wrench, Clock, Sparkles, Wifi, UserCheck, Calendar, Send, Megaphone, Trash2, Search, AlertTriangle } from 'lucide-react';
 import Logo from '@/components/Logo';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart
@@ -102,6 +107,9 @@ export default function AdminDashboard() {
           <Stat icon={Wifi} label="Scansioni NFC" value={stats.total_scans} />
         </div>
 
+        {/* Broadcast panel */}
+        <BroadcastPanel totalUsers={stats.total_users} />
+
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Sparkles className="w-4 h-4 text-orange-400" />Contenuti creati</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <Stat icon={Camera} label="Foto galleria" value={stats.total_gallery} />
@@ -111,7 +119,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Recent users */}
-        <Card className="metallic p-6">
+        <Card className="metallic p-6 mb-6">
           <h3 className="font-semibold mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-orange-400" />Ultimi utenti registrati</h3>
           <div className="space-y-2">
             {recent_users.map(u => (
@@ -134,6 +142,9 @@ export default function AdminDashboard() {
             ))}
           </div>
         </Card>
+
+        {/* User management (with delete) */}
+        <UsersManagementPanel />
       </div>
     </div>
   );
@@ -151,3 +162,251 @@ function Stat({ icon: Icon, label, value, accent, pulse }) {
     </Card>
   );
 }
+
+function BroadcastPanel({ totalUsers }) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+  // Recipients: every user except the admin themselves.
+  const recipients = Math.max(0, (totalUsers || 0) - 1);
+
+  const send = async () => {
+    const text = content.trim();
+    if (!text) return toast.error('Messaggio vuoto');
+    if (!window.confirm(`Confermi l'invio del messaggio a ${recipients} utenti? L'operazione non è annullabile.`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore');
+      setLastResult({ sent: data.sent, when: new Date(), preview: text.slice(0, 60) });
+      setContent('');
+      setOpen(false);
+      toast.success(`Messaggio inviato a ${data.sent} utenti`);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="metallic p-6 mb-8 border-orange-500/20">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex-1 min-w-[240px]">
+          <h3 className="font-semibold flex items-center gap-2 mb-1"><Megaphone className="w-4 h-4 text-orange-400" />Comunicazione broadcast</h3>
+          <p className="text-sm text-neutral-400">
+            Invia un messaggio a <span className="text-orange-400 font-semibold mono">{recipients.toLocaleString('it-IT')}</span> utenti in un colpo solo. Ognuno lo riceverà nella propria inbox <span className="mono">/messages</span> come conversazione privata con te.
+          </p>
+          {lastResult && (
+            <div className="mt-3 text-xs text-emerald-400 mono">
+              ✓ Ultimo invio: {lastResult.sent} destinatari · {lastResult.when.toLocaleString('it-IT')}
+              <div className="text-neutral-500 truncate">"{lastResult.preview}"</div>
+            </div>
+          )}
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-orange-600 hover:bg-orange-500 shrink-0"><Send className="w-4 h-4 mr-1" />Nuovo messaggio</Button>
+          </DialogTrigger>
+          <DialogContent className="bg-neutral-950 border-white/10 max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Megaphone className="w-5 h-5 text-orange-400" />Messaggio broadcast</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg bg-orange-500/5 border border-orange-500/20 text-xs text-neutral-300">
+                Verrà creata una conversazione 1:1 con ciascuno dei <span className="text-orange-400 font-semibold">{recipients.toLocaleString('it-IT')}</span> utenti. Ogni destinatario vedrà il messaggio come proveniente dal tuo account.
+              </div>
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={7}
+                maxLength={2000}
+                placeholder="Es. Ciao a tutti, abbiamo appena rilasciato il supporto NFC..."
+                className="resize-none"
+                autoFocus
+              />
+              <div className="flex items-center justify-between text-xs text-neutral-500">
+                <span className="mono">{content.length}/2000</span>
+                <span>Il messaggio non può essere modificato o revocato dopo l'invio.</span>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setOpen(false)} disabled={busy}>Annulla</Button>
+                <Button className="flex-1 bg-orange-600 hover:bg-orange-500" onClick={send} disabled={busy || !content.trim() || recipients === 0}>
+                  {busy ? 'Invio...' : `Invia a ${recipients.toLocaleString('it-IT')} utenti`}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Card>
+  );
+}
+
+function UsersManagementPanel() {
+  const [q, setQ] = useState('');
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = async (query = '') => {
+    setLoading(true);
+    setError(null);
+    try {
+      const url = query ? `/api/admin/users?q=${encodeURIComponent(query)}` : '/api/admin/users';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore');
+      setUsers(data.users || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(''); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => load(q), q ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const onDeleted = (id) => setUsers(prev => prev.filter(u => u.id !== id));
+
+  return (
+    <Card className="metallic p-6 border-red-500/20">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-400" />Gestione utenti</h3>
+          <p className="text-xs text-neutral-500">Cerca un utente e cancella l'account definitivamente. L'operazione elimina anche moto, foto, messaggi e storia — non è reversibile.</p>
+        </div>
+        <div className="relative min-w-[240px] flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca per email, username, nome..." className="pl-10" />
+        </div>
+      </div>
+
+      {error && <div className="text-xs text-red-400 mb-3 mono">{error}</div>}
+
+      <div className="space-y-1">
+        {loading ? (
+          <div className="text-sm text-neutral-500 py-6 text-center">Caricamento...</div>
+        ) : users.length === 0 ? (
+          <div className="text-sm text-neutral-500 py-6 text-center">Nessun utente trovato</div>
+        ) : (
+          users.map(u => (
+            <UserRow key={u.id} user={u} onDeleted={() => onDeleted(u.id)} />
+          ))
+        )}
+      </div>
+
+      {!loading && users.length > 0 && (
+        <div className="mt-3 text-[10px] mono text-neutral-500 uppercase tracking-wider">
+          {users.length} risultat{users.length === 1 ? 'o' : 'i'} · massimo 200
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function UserRow({ user, onDeleted }) {
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const canDelete = confirmText.trim().toLowerCase() === (user.email || '').toLowerCase() && !user.is_admin;
+
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore');
+      toast.success(`Utente eliminato: ${data.deleted.motorcycles} moto, ${data.deleted.child_documents} record collegati`);
+      onDeleted();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+      setOpen(false);
+      setConfirmText('');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
+      <div className="w-9 h-9 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
+        {user.profile_photo ? <img src={user.profile_photo} alt="" className="w-full h-full object-cover" /> : <Users className="w-4 h-4 text-neutral-500" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium truncate">{user.first_name || user.username}</span>
+          {user.is_admin && <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-[10px]">Admin</Badge>}
+          {user.bike_count > 0 && <span className="text-[10px] mono text-neutral-500"><Bike className="w-2.5 h-2.5 inline mr-0.5" />{user.bike_count}</span>}
+        </div>
+        <div className="text-xs text-neutral-500 mono truncate">{user.email}</div>
+      </div>
+      <div className="text-right shrink-0 hidden sm:block">
+        <div className="text-xs mono text-neutral-400">{new Date(user.created_at).toLocaleDateString('it-IT')}</div>
+        {user.last_seen && <div className="text-[10px] mono text-emerald-400">visto {new Date(user.last_seen).toLocaleDateString('it-IT')}</div>}
+      </div>
+      <AlertDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setConfirmText(''); }}>
+        <AlertDialogTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-red-400 border-red-500/30 hover:bg-red-500/10 shrink-0"
+            disabled={user.is_admin}
+            title={user.is_admin ? 'Impossibile cancellare un altro admin' : 'Cancella utente'}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent className="bg-neutral-950 border-red-500/20 max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-400">
+              <AlertTriangle className="w-5 h-5" />Cancellazione permanente
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-neutral-300">
+                <p>Stai per cancellare <b className="text-white">{user.first_name || user.username}</b> (<span className="mono text-neutral-400">{user.email}</span>) e:</p>
+                <ul className="list-disc pl-5 text-neutral-400 space-y-0.5">
+                  <li>{user.bike_count} mot{user.bike_count === 1 ? 'o' : 'o'} e tutta la loro storia (manutenzione, timeline, modifiche, gallery, documenti)</li>
+                  <li>Tutti i messaggi inviati e ricevuti</li>
+                  <li>Reminders, tag NFC, transfer, ownership history</li>
+                </ul>
+                <p className="text-red-400 text-xs">L'operazione NON è reversibile.</p>
+                <div className="pt-2">
+                  <p className="text-xs text-neutral-400 mb-1">Per confermare, digita l'email dell'utente:</p>
+                  <Input
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    placeholder={user.email}
+                    className="mono text-sm"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); doDelete(); }}
+              disabled={!canDelete || busy}
+              className="bg-red-600 hover:bg-red-500 text-white disabled:opacity-40"
+            >
+              {busy ? 'Cancellazione...' : 'Cancella definitivamente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+

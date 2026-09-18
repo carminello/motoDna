@@ -11,6 +11,74 @@ export const runtime = 'nodejs';
 
 const json = (data, status = 200) => NextResponse.json(data, { status });
 
+// Parse the ADMIN_EMAILS env var into a lowercased Set for O(1) lookup.
+// Emails listed here are always granted is_admin=true at register/login.
+const ADMIN_EMAILS = new Set(
+  (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+async function ensureAdminFlag(db, userDoc) {
+  if (!userDoc || !userDoc.email) return userDoc;
+  if (!ADMIN_EMAILS.has(userDoc.email.toLowerCase())) return userDoc;
+  if (userDoc.is_admin === true) return userDoc;
+  await db.collection('users').updateOne(
+    { id: userDoc.id },
+    { $set: { is_admin: true, admin_granted_at: new Date() } },
+  );
+  return { ...userDoc, is_admin: true };
+}
+
+// ---------- GridFS orphan cleanup helpers ----------
+// Parse a MotoDNA file URL and return its Mongo ObjectId, or null.
+// Accepts "/api/files/<hex24>", optionally with a trailing extension.
+function fileIdFromUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const m = url.match(/\/api\/files\/([a-f0-9]{24})/i);
+  if (!m) return null;
+  return ObjectId.isValid(m[1]) ? new ObjectId(m[1]) : null;
+}
+
+// Collect every file ObjectId referenced by the given motorcycle ids
+// (cover photo + gallery + documents). Deduplicated.
+async function collectMotoFileIds(db, motoIds) {
+  if (!motoIds.length) return [];
+  const seen = new Set();
+  const push = (url) => {
+    const id = fileIdFromUrl(url);
+    if (id) seen.add(id.toString());
+  };
+  const [motos, gallery, docs] = await Promise.all([
+    db.collection('motorcycles').find({ id: { $in: motoIds } }, { projection: { main_photo: 1, _id: 0 } }).toArray(),
+    db.collection('gallery').find({ motorcycle_id: { $in: motoIds } }, { projection: { file_url: 1, _id: 0 } }).toArray(),
+    db.collection('documents').find({ motorcycle_id: { $in: motoIds } }, { projection: { file_url: 1, _id: 0 } }).toArray(),
+  ]);
+  motos.forEach(m => push(m.main_photo));
+  gallery.forEach(g => push(g.file_url));
+  docs.forEach(d => push(d.file_url));
+  return Array.from(seen).map(s => new ObjectId(s));
+}
+
+// Best-effort GridFS delete. "File not found" is fine (already removed).
+async function deleteGridFsFiles(bucket, fileIds) {
+  if (!fileIds.length) return 0;
+  let ok = 0;
+  await Promise.all(fileIds.map(async (id) => {
+    try {
+      await bucket.delete(id);
+      ok++;
+    } catch (e) {
+      const msg = e?.message || '';
+      if (!/FileNotFound|does not exist/i.test(msg)) {
+        console.warn('[gridfs] delete failed for', id.toString(), msg);
+      }
+    }
+  }));
+  return ok;
+}
+
 async function getBucket() {
   const db = await getDb();
   return new GridFSBucket(db, { bucketName: 'uploads' });
@@ -85,18 +153,22 @@ async function handler(request, { params }) {
       if (existing) return json({ error: 'Email già registrata' }, 400);
       const id = uuidv4();
       const now = new Date();
+      const normalizedEmail = email.toLowerCase();
       const user = {
-        id, email: email.toLowerCase(),
+        id, email: normalizedEmail,
         password_hash: await hashPassword(password),
         first_name: first_name || '', last_name: last_name || '',
         username: username || email.split('@')[0],
         profile_photo: null, country: '', status: 'ACTIVE',
+        // Auto-grant admin if the email is whitelisted via env.
+        is_admin: ADMIN_EMAILS.has(normalizedEmail),
         created_at: now, updated_at: now,
       };
+      if (user.is_admin) user.admin_granted_at = now;
       await db.collection('users').insertOne(user);
       await seedDemoForUser(db, id);
       const token = signToken({ sub: id, email: user.email });
-      const res = json({ user: { id, email: user.email, first_name: user.first_name, last_name: user.last_name, username: user.username } });
+      const res = json({ user: { id, email: user.email, first_name: user.first_name, last_name: user.last_name, username: user.username, is_admin: !!user.is_admin } });
       setAuthCookie(res, token);
       return res;
     }
@@ -118,8 +190,11 @@ async function handler(request, { params }) {
       if (!user) return json({ error: 'Credenziali non valide' }, 401);
       const ok = await verifyPassword(password, user.password_hash);
       if (!ok) return json({ error: 'Credenziali non valide' }, 401);
-      const token = signToken({ sub: user.id, email: user.email });
-      const res = json({ user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, username: user.username, is_admin: !!user.is_admin } });
+      // If the email is whitelisted as admin but the DB flag isn't set yet
+      // (e.g. account created before ADMIN_EMAILS was configured), grant it now.
+      const promoted = await ensureAdminFlag(db, user);
+      const token = signToken({ sub: promoted.id, email: promoted.email });
+      const res = json({ user: { id: promoted.id, email: promoted.email, first_name: promoted.first_name, last_name: promoted.last_name, username: promoted.username, is_admin: !!promoted.is_admin } });
       setAuthCookie(res, token, remember !== false);
       return res;
     }
@@ -135,7 +210,9 @@ async function handler(request, { params }) {
       if (!authMe) return json({ user: null });
       // Track last_seen (best-effort, non-blocking)
       db.collection('users').updateOne({ id: authMe.sub }, { $set: { last_seen: new Date() } }).catch(() => {});
-      const user = await db.collection('users').findOne({ id: authMe.sub }, { projection: { password_hash: 0, _id: 0 } });
+      let user = await db.collection('users').findOne({ id: authMe.sub }, { projection: { password_hash: 0, _id: 0 } });
+      // Auto-promote if the current email is now whitelisted.
+      user = await ensureAdminFlag(db, user);
       return json({ user });
     }
 
@@ -381,10 +458,138 @@ async function handler(request, { params }) {
       delete maint._id;
       return json({ maintenance: maint });
     }
-    // GET /api/admin/stats - only admins
-    if (p[0] === 'admin' && p[1] === 'stats' && method === 'GET') {
+    // ============== ADMIN ==============
+
+    // Helper: guard for admin-only routes. Reads the current user; returns
+    // an early NextResponse on unauthorised access, or null when allowed.
+    async function requireAdmin() {
       const me = await db.collection('users').findOne({ id: userId }, { projection: { is_admin: 1, _id: 0 } });
       if (!me?.is_admin) return json({ error: 'Accesso riservato agli admin' }, 403);
+      return null;
+    }
+
+    // GET /api/admin/users?q=... — searchable list for admin management.
+    if (p[0] === 'admin' && p[1] === 'users' && !p[2] && method === 'GET') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
+      const url = new URL(request.url);
+      const q = (url.searchParams.get('q') || '').trim();
+      const filter = q ? { $or: [
+        { email: { $regex: q, $options: 'i' } },
+        { username: { $regex: q, $options: 'i' } },
+        { first_name: { $regex: q, $options: 'i' } },
+        { last_name: { $regex: q, $options: 'i' } },
+      ] } : {};
+      const users = await db.collection('users').find(filter, {
+        projection: { _id: 0, id: 1, email: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, created_at: 1, last_seen: 1, is_admin: 1 }
+      }).sort({ created_at: -1 }).limit(200).toArray();
+      // Enrich with bike count in a single aggregation.
+      const ids = users.map(u => u.id);
+      const bikeCounts = ids.length ? await db.collection('motorcycles').aggregate([
+        { $match: { owner_id: { $in: ids } } },
+        { $group: { _id: '$owner_id', count: { $sum: 1 } } },
+      ]).toArray() : [];
+      const bmap = Object.fromEntries(bikeCounts.map(b => [b._id, b.count]));
+      return json({ users: users.map(u => ({ ...u, bike_count: bmap[u.id] || 0 })) });
+    }
+
+    // DELETE /api/admin/users/:id — cascade delete a user and every doc
+    // referencing them, plus GridFS files owned by their content. Blocks
+    // self-deletion and admin-on-admin deletion.
+    if (p[0] === 'admin' && p[1] === 'users' && p[2] && method === 'DELETE') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
+      const targetId = p[2];
+      if (targetId === userId) {
+        return json({ error: 'Non puoi cancellare te stesso' }, 400);
+      }
+      const target = await db.collection('users').findOne({ id: targetId });
+      if (!target) return json({ error: 'Utente non trovato' }, 404);
+      if (target.is_admin) {
+        return json({ error: 'Impossibile cancellare un altro admin. Rimuovi prima il flag is_admin dal database.' }, 403);
+      }
+
+      // Collect all motorcycle ids for cascade.
+      const motos = await db.collection('motorcycles').find(
+        { owner_id: targetId },
+        { projection: { id: 1, _id: 0 } },
+      ).toArray();
+      const motoIds = motos.map(m => m.id);
+
+      // 1) Collect referenced GridFS files (moto content + user profile photo).
+      const bucket = await getBucket();
+      const motoFileIds = await collectMotoFileIds(db, motoIds);
+      const profileFileId = fileIdFromUrl(target.profile_photo);
+      const allFileIds = [...motoFileIds];
+      if (profileFileId && !motoFileIds.find(id => id.equals(profileFileId))) {
+        allFileIds.push(profileFileId);
+      }
+
+      // 2) Cascade delete sub-collection docs (parallel).
+      const childCollections = ['maintenance','timeline','modifications','gallery','documents','reminders','nfc_tags','nfc_scans','postits'];
+      const cascadeOps = [];
+      if (motoIds.length) {
+        for (const c of childCollections) {
+          cascadeOps.push(db.collection(c).deleteMany({ motorcycle_id: { $in: motoIds } }));
+        }
+      }
+      cascadeOps.push(db.collection('reminders').deleteMany({ user_id: targetId }));
+      cascadeOps.push(db.collection('messages').deleteMany({ $or: [{ from_user_id: targetId }, { to_user_id: targetId }] }));
+      cascadeOps.push(db.collection('transfers').deleteMany({ $or: [{ from_user_id: targetId }, { to_user_id: targetId }] }));
+      cascadeOps.push(db.collection('ownership_history').deleteMany({ owner_id: targetId }));
+
+      const results = await Promise.all(cascadeOps);
+      const removedChildren = results.reduce((s, r) => s + (r?.deletedCount || 0), 0);
+
+      // 3) Delete GridFS files (best-effort).
+      const filesRemoved = await deleteGridFsFiles(bucket, allFileIds);
+
+      // 4) Finally: motorcycles + the user itself.
+      const motosRes = await db.collection('motorcycles').deleteMany({ owner_id: targetId });
+      const userRes = await db.collection('users').deleteOne({ id: targetId });
+
+      return json({
+        ok: true,
+        deleted: {
+          user: userRes.deletedCount,
+          motorcycles: motosRes.deletedCount,
+          child_documents: removedChildren,
+          files: filesRemoved,
+        },
+      });
+    }
+
+    // POST /api/admin/broadcast - send a message from admin to every user
+    if (p[0] === 'admin' && p[1] === 'broadcast' && method === 'POST') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
+      const body = await request.json().catch(() => ({}));
+      const content = String(body.content || '').trim().slice(0, 2000);
+      if (!content) return json({ error: 'Messaggio vuoto' }, 400);
+      // Recipients: every active user except the sender themselves.
+      const recipients = await db.collection('users').find(
+        { id: { $ne: userId }, status: { $ne: 'DISABLED' } },
+        { projection: { id: 1, _id: 0 } },
+      ).toArray();
+      if (recipients.length === 0) return json({ sent: 0 });
+      const now = new Date();
+      const docs = recipients.map(r => ({
+        id: uuidv4(),
+        from_user_id: userId,
+        to_user_id: r.id,
+        content,
+        created_at: now,
+        read_at: null,
+        broadcast: true,
+      }));
+      await db.collection('messages').insertMany(docs);
+      return json({ sent: docs.length });
+    }
+
+    // GET /api/admin/stats - only admins
+    if (p[0] === 'admin' && p[1] === 'stats' && method === 'GET') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
 
       const now = new Date();
       const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
@@ -671,6 +876,43 @@ async function handler(request, { params }) {
       return json({ moto });
     }
 
+    // DELETE /api/motorcycles/:id — owner cascade delete
+    // Cleans up sub-collections, transfers, ownership history, NFC data
+    // AND orphan files in GridFS (cover + gallery + documents).
+    if (p[0] === 'motorcycles' && p[1] && !p[2] && method === 'DELETE') {
+      const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
+      if (!moto) return json({ error: 'Non autorizzato o moto non trovata' }, 403);
+      const motoId = moto.id;
+
+      // 1) Collect referenced files BEFORE we delete the docs.
+      const bucket = await getBucket();
+      const fileIds = await collectMotoFileIds(db, [motoId]);
+
+      // 2) Delete sub-collection docs (parallel).
+      const childCollections = ['maintenance','timeline','modifications','gallery','documents','reminders','nfc_tags','nfc_scans','postits'];
+      const results = await Promise.all([
+        ...childCollections.map(c => db.collection(c).deleteMany({ motorcycle_id: motoId })),
+        db.collection('transfers').deleteMany({ motorcycle_id: motoId }),
+        db.collection('ownership_history').deleteMany({ motorcycle_id: motoId }),
+      ]);
+      const removedChildren = results.reduce((s, r) => s + (r?.deletedCount || 0), 0);
+
+      // 3) Delete GridFS files (best-effort — never blocks the response).
+      const filesRemoved = await deleteGridFsFiles(bucket, fileIds);
+
+      // 4) Finally, delete the motorcycle itself.
+      const motoRes = await db.collection('motorcycles').deleteOne({ id: motoId, owner_id: userId });
+
+      return json({
+        ok: true,
+        deleted: {
+          motorcycle: motoRes.deletedCount,
+          child_documents: removedChildren,
+          files: filesRemoved,
+        },
+      });
+    }
+
     if (p[0] === 'motorcycles' && p[1] && p[2] === 'nfc' && method === 'POST') {
       const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
       if (!moto) return json({ error: 'Non autorizzato' }, 403);
@@ -745,6 +987,15 @@ async function handler(request, { params }) {
       const body = await request.json();
       const moto = await db.collection('motorcycles').findOne({ id: motorcycleId, owner_id: userId });
       if (!moto) return json({ error: 'Non autorizzato' }, 403);
+      // Enforce photo limit: cover (main_photo) + gallery items ≤ 3.
+      if (kind === 'gallery') {
+        const galleryCount = await db.collection('gallery').countDocuments({ motorcycle_id: motorcycleId });
+        const hasCover = !!moto.main_photo;
+        const total = galleryCount + (hasCover ? 1 : 0);
+        if (total >= 3) {
+          return json({ error: 'Limite di 3 foto raggiunto (inclusa la copertina). Elimina una foto prima di aggiungerne una nuova.' }, 400);
+        }
+      }
       const id = uuidv4();
       const now = new Date();
       let doc = { id, motorcycle_id: motorcycleId, created_at: now };
