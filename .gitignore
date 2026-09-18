@@ -30,7 +30,12 @@ next-env.d.ts
 dist/
 dist
 
-# Environment files (comprehensive coverage)
+# Environment files — MUST NOT be committed (contain JWT_SECRET, DB creds)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
 *token.json*
 *credentials.json*
 
@@ -75,7 +80,13 @@ agenthub/agents/youtube/db
 # Build caches
 .cache/
 
-memory/test_credentials.md
+# Internal / platform-specific — never publish
+.emergent/
+memory/
+test_result.md
+test_reports/
+backend_test*.py
+tests/
 
 # Mobile development
 android-sdk/node_modules/@next/swc-linux-x64-musl/next-swc.linux-x64-musl.node
