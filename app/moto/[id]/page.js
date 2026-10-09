@@ -32,7 +32,7 @@ export default function MotoPage({ params }) {
   const router = useRouter();
   const [data, setData] = useState(null);
 
-  const load = () => fetch(`/api/motorcycles/${id}`).then(r => r.json()).then(d => {
+ const load = () => fetch(`/api/motorcycles/${id}?_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(d => {
     if (d.error) { toast.error(d.error); router.push('/dashboard'); return; }
     setData(d);
   });
@@ -399,7 +399,20 @@ export default function MotoPage({ params }) {
                       <p className="text-xs text-neutral-400">Associa un tag NFC alla tua moto in meno di 30 secondi. Basta un tap.</p>
                     </div>
                   </div>
-                  <NfcAssociator motorcycle={moto} onAssociated={() => { toast.success('Tag NFC associato!'); load(); }} />
+                 <NfcAssociator 
+  motorcycle={moto} 
+  onAssociated={(resData) => { 
+    toast.success('Tag NFC associato!'); 
+    if (resData?.motorcycle) {
+      setData(prev => ({ 
+        ...prev, 
+        moto: { ...prev.moto, ...resData.motorcycle },
+        nfc: resData.nfc || prev.nfc 
+      }));
+    }
+    load(); 
+  }} 
+/>
                 </div>
               )}
 
