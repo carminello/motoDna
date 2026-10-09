@@ -362,7 +362,7 @@ export default function MotoPage({ params }) {
               <div className="flex items-center gap-2 mb-4"><Wifi className="w-5 h-5 text-orange-400" /><h3 className="text-lg font-semibold">Tag NFC</h3></div>
 
               {/* Association status card */}
-              {moto.nfc_associated ? (
+              {(moto.nfc_associated || moto.nfc_tag_id || (nfc && nfc.status === 'ACTIVE' && nfc.tag_uid && !nfc.tag_uid.startsWith('TAG-'))) ? (
                 <div className="p-5 rounded-xl bg-gradient-to-br from-emerald-500/10 to-green-600/5 border-2 border-emerald-500/30 mb-6">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
