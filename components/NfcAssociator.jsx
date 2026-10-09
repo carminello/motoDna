@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Wifi, WifiOff, Loader2, CheckCircle2, Smartphone, AlertTriangle, X, RefreshCw, ScanLine, ExternalLink, Globe } from 'lucide-react';
+import { Wifi, WifiOff, Loader2, CheckCircle2, Smartphone, AlertTriangle, X, RefreshCw, ScanLine, ExternalLink, Globe, ArrowRight } from 'lucide-react';
 
 export default function NfcAssociator({ motorcycle, onAssociated }) {
   const [open, setOpen] = useState(false);
@@ -47,6 +47,18 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
         window.open(window.location.href, '_system');
       }
     }
+  };
+
+  const returnToTelegram = () => {
+    setOpen(false);
+    // 1. Tenta di chiudere la scheda di Chrome
+    try { window.close(); } catch (e) {}
+    // 2. Riapre direttamente l'app Telegram sul tuo bot
+    window.location.href = 'tg://resolve?domain=motoDNA_app_bot';
+    // Fallback nel caso lo schema tg:// non sia supportato dal browser
+    setTimeout(() => {
+      window.location.href = 'https://t.me/motoDNA_app_bot';
+    }, 400);
   };
 
   const startScanAndWrite = async () => {
@@ -202,7 +214,7 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
             </div>
             <h3 className="text-xl font-bold mb-1">Portachiavi programmato! 🎉</h3>
             <p className="text-xs text-neutral-300 mb-4">
-              Il link ospite è stato inciso sul chip NFC:
+              Il tag è stato scritto e associato alla tua moto.
             </p>
             <div className="p-3 rounded-lg bg-neutral-900 border border-white/10 mb-4 text-left">
               <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold mb-1">
@@ -210,8 +222,10 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
               </div>
               <div className="text-[11px] mono text-neutral-300 break-all">{publicUrl}</div>
             </div>
-            <Button onClick={() => setOpen(false)} className="w-full h-11 bg-orange-600 hover:bg-orange-500 font-semibold">
-              Fatto!
+            
+            {/* Tasto che chiude Chrome e ti riporta subito su Telegram */}
+            <Button onClick={returnToTelegram} className="w-full h-12 bg-orange-600 hover:bg-orange-500 font-semibold text-base shadow-lg shadow-orange-600/30">
+              Fatto! Torna su Telegram <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
         )}
