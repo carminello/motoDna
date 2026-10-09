@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -5,13 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { Wifi, WifiOff, Loader2, CheckCircle2, Smartphone, AlertTriangle, X, RefreshCw, ScanLine, ExternalLink } from 'lucide-react';
 
-/**
- * Ultra-simple NFC associator using the Web NFC API (NDEFReader).
- * Supporta l'apertura automatica in Chrome quando aperto da Telegram.
- */
 export default function NfcAssociator({ motorcycle, onAssociated }) {
   const [open, setOpen] = useState(false);
-  const [phase, setPhase] = useState('idle'); // idle | scanning | success | error
+  const [phase, setPhase] = useState('idle');
   const [scannedUid, setScannedUid] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [controller, setController] = useState(null);
@@ -20,9 +17,12 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      setSupported('NDEFReader' in window);
-      // Riconosce se siamo dentro Telegram
-      setIsTelegram(Boolean(window.Telegram?.WebApp?.initData));
+      const isTg = Boolean(
+        window.Telegram?.WebApp?.initData || 
+        navigator.userAgent.includes('Telegram')
+      );
+      setIsTelegram(isTg);
+      setSupported('NDEFReader' in window && !isTg);
     }
   }, []);
 
@@ -36,10 +36,12 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
   }, [open]);
 
   const openInExternalBrowser = () => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.openLink(window.location.href);
-    } else {
-      window.open(window.location.href, '_blank');
+    if (typeof window !== 'undefined') {
+      if (window.Telegram?.WebApp?.openLink) {
+        window.Telegram.WebApp.openLink(window.location.href);
+      } else {
+        window.open(window.location.href, '_system');
+      }
     }
   };
 
@@ -48,16 +50,9 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
     setErrorMsg('');
     setScannedUid(null);
 
-    // Se siamo dentro Telegram, avvisa e offri apertura in Chrome
-    if (isTelegram) {
+    if (isTelegram || !supported) {
       setPhase('error');
-      setErrorMsg('Telegram blocca i permessi NFC per sicurezza. Tocca il pulsante qui sotto per aprire la schermata in Google Chrome e associare il portachiavi.');
-      return;
-    }
-
-    if (!supported) {
-      setPhase('error');
-      setErrorMsg('Il tuo dispositivo non supporta la lettura NFC dal browser. Apri MotoDNA con Chrome su un telefono Android per associare il tag.');
+      setErrorMsg('Per scansionare i tag NFC dal telefono è necessario aprire la pagina con Google Chrome.');
       return;
     }
 
@@ -150,17 +145,18 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
             </div>
             <h3 className="text-xl font-bold mb-2">Pronto ad associare</h3>
             <p className="text-sm text-neutral-400 mb-6">
-              Tocca "Avvia scansione" e avvicina il tag NFC alla parte posteriore del telefono.
+              Avvicina il tag NFC alla parte posteriore del telefono.
             </p>
 
-            {isTelegram ? (
+            {/* BOX AVVISO E PULSANTE CHROME SEMPRE PRESENTE SE NON È CHROME DIRETTO */}
+            {(!supported || isTelegram) && (
               <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/30 text-left mb-4">
                 <div className="flex items-start gap-2">
                   <ExternalLink className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                   <div>
-                    <div className="text-sm font-semibold text-orange-400">Accesso da Telegram</div>
+                    <div className="text-sm font-semibold text-orange-400">Serve Google Chrome</div>
                     <p className="text-xs text-neutral-300 mt-1 mb-3">
-                      Telegram non consente la lettura NFC diretta. Apri questa pagina in Chrome per associare il tuo portachiavi.
+                      I browser interni non possono leggere i tag NFC. Apri questa pagina in Chrome per completare l'associazione.
                     </p>
                     <Button onClick={openInExternalBrowser} size="sm" className="w-full bg-orange-600 hover:bg-orange-500 font-semibold">
                       <ExternalLink className="w-4 h-4 mr-2" /> Apri in Google Chrome
@@ -168,21 +164,9 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
                   </div>
                 </div>
               </div>
-            ) : !supported ? (
-              <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-left mb-4">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-sm font-semibold text-yellow-400">NFC non disponibile</div>
-                    <p className="text-xs text-neutral-400 mt-1">
-                      Il tuo browser non supporta la scansione NFC. Per usarla apri MotoDNA con <b>Chrome su Android</b>.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+            )}
 
-            <Button onClick={startScan} className="w-full h-12 bg-orange-600 hover:bg-orange-500 text-base font-semibold" disabled={!supported && !isTelegram}>
+            <Button onClick={startScan} className="w-full h-12 bg-orange-600 hover:bg-orange-500 text-base font-semibold" disabled={!supported}>
               <ScanLine className="w-5 h-5 mr-2" /> Avvia scansione NFC
             </Button>
 
@@ -202,7 +186,7 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
               </div>
             </div>
             <h3 className="text-xl font-bold mb-2">Avvicina il tag NFC</h3>
-            <p className="text-sm text-neutral-400 mb-6">Tieni il telefono vicino al tag NFC finché non viene rilevato...</p>
+            <p className="text-sm text-neutral-400 mb-6">Tieni il telefono vicino al tag NFC...</p>
             <Loader2 className="w-6 h-6 text-orange-400 animate-spin mx-auto" />
             <Button variant="ghost" size="sm" className="mt-6" onClick={() => { controller?.abort(); setPhase('idle'); }}>
               <X className="w-4 h-4 mr-1" /> Annulla
@@ -237,11 +221,9 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
             <h3 className="text-lg font-bold mb-2">NFC su Telegram</h3>
             <p className="text-sm text-neutral-300 mb-6">{errorMsg}</p>
             
-            {isTelegram ? (
-              <Button onClick={openInExternalBrowser} className="w-full h-12 bg-orange-600 hover:bg-orange-500 text-base font-semibold mb-3">
-                <ExternalLink className="w-5 h-5 mr-2" /> Apri in Google Chrome
-              </Button>
-            ) : null}
+            <Button onClick={openInExternalBrowser} className="w-full h-12 bg-orange-600 hover:bg-orange-500 text-base font-semibold mb-3">
+              <ExternalLink className="w-5 h-5 mr-2" /> Apri in Google Chrome
+            </Button>
 
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpen(false)}>Chiudi</Button>
