@@ -37,8 +37,16 @@ export default function MotoPage({ params }) {
     setData(d);
   });
 
-  useEffect(() => { load(); }, [id]);
-
+useEffect(() => { 
+  load(); 
+  const onResume = () => { if (document.visibilityState === 'visible') load(); };
+  window.addEventListener('focus', onResume);
+  document.addEventListener('visibilitychange', onResume);
+  return () => {
+    window.removeEventListener('focus', onResume);
+    document.removeEventListener('visibilitychange', onResume);
+  };
+}, [id]);
   if (!data) return <MotoDetailSkeleton />;
   const { moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits = [] } = data;
 
