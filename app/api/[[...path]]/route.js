@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { createHash, randomBytes } from 'node:crypto';
+import { sendGmail } from '@/lib/gmail';
 import { v4 as uuidv4 } from 'uuid';
 import { ObjectId, GridFSBucket } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
@@ -145,6 +147,70 @@ async function handler(request, { params }) {
     }
 
     // ============== AUTH ==============
+
+    // ============== PASSWORD RESET (public) ==============
+    if (path === '/auth/forgot-password' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const email = String(body.email || '').trim().toLowerCase();
+      const genericMessage = 'Se l’indirizzo è associato a un account, riceverai un link per reimpostare la password.';
+      const ip = getClientIp(request);
+      const ipLimit = isAllowed(`forgot-password:ip:${ip}`, { max: 5, windowMs: 15 * 60_000 });
+      const emailLimit = isAllowed(`forgot-password:email:${email.slice(0, 254)}`, { max: 3, windowMs: 15 * 60_000 });
+      if (!ipLimit.allowed || !emailLimit.allowed) return json({ message: genericMessage }, 200);
+      if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ message: genericMessage }, 200);
+
+      const user = await db.collection('users').findOne({ email }, { projection: { id: 1, email: 1 } });
+      if (user) {
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 60_000);
+        await db.collection('password_reset_tokens').deleteMany({ user_id: user.id });
+        await db.collection('password_reset_tokens').insertOne({ user_id: user.id, token_hash: tokenHash, created_at: now, expires_at: expiresAt, used_at: null });
+        const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '');
+        const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
+        try {
+          await sendGmail({
+            to: user.email,
+            subject: 'Reimposta la password di MotoDNA',
+            text: `Hai richiesto di reimpostare la password di MotoDNA. Apri questo link entro 30 minuti: ${resetUrl}\n\nSe non hai fatto tu la richiesta, ignora questa email.`,
+            html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#171717"><h2>Reimposta la password di MotoDNA</h2><p>Hai richiesto di reimpostare la password del tuo account.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px">Scegli una nuova password</a></p><p>Il link scade tra 30 minuti e può essere usato una sola volta.</p><p>Se non hai richiesto tu il recupero, ignora questa email.</p></div>`,
+          });
+        } catch (error) {
+          await db.collection('password_reset_tokens').deleteOne({ token_hash: tokenHash }).catch(() => {});
+          console.error('[MotoDNA/password-reset] Email send failed:', error?.message || 'unknown error');
+        }
+      }
+      return json({ message: genericMessage }, 200);
+    }
+
+    if (path === '/auth/reset-password' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const token = String(body.token || '');
+      const password = String(body.password || '');
+      if (!/^[a-f0-9]{64}$/i.test(token)) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
+      if (password.length < 8 || password.length > 128) return json({ error: 'La password deve contenere almeno 8 caratteri e non superare 128 caratteri.' }, 400);
+
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const now = new Date();
+      const resetRecord = await db.collection('password_reset_tokens').findOne({ token_hash: tokenHash, expires_at: { $gt: now }, used_at: null });
+      if (!resetRecord) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
+
+      const consumed = await db.collection('password_reset_tokens').updateOne(
+        { _id: resetRecord._id, used_at: null, expires_at: { $gt: now } },
+        { $set: { used_at: now } },
+      );
+      if (consumed.modifiedCount !== 1) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
+
+      const result = await db.collection('users').updateOne(
+        { id: resetRecord.user_id },
+        { $set: { password_hash: await hashPassword(password), password_changed_at: now, updated_at: now } },
+      );
+      if (result.modifiedCount !== 1) return json({ error: 'Impossibile aggiornare la password. Richiedi un nuovo link.' }, 400);
+      await db.collection('password_reset_tokens').deleteMany({ user_id: resetRecord.user_id });
+      return json({ message: 'Password aggiornata. Ora puoi accedere con la nuova password.' });
+    }
+
     if (path === '/auth/register' && method === 'POST') {
       const body = await request.json();
       const { email, password, first_name, last_name, username } = body;
