@@ -110,6 +110,8 @@ export default function AdminDashboard() {
         {/* Broadcast panel */}
         <BroadcastPanel totalUsers={stats.total_users} />
 
+        <PasswordResetRequestsPanel />
+
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><Sparkles className="w-4 h-4 text-orange-400" />Contenuti creati</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <Stat icon={Camera} label="Foto galleria" value={stats.total_gallery} />
@@ -149,6 +151,89 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
+
+function PasswordResetRequestsPanel() {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/password-reset-requests');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Impossibile caricare le richieste');
+      setRequests(data.requests || []);
+    } catch (e) {
+      setError(e.message || 'Errore di rete');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const decide = async (requestId, action) => {
+    setBusyId(requestId);
+    try {
+      const res = await fetch(`/api/admin/password-reset-requests/${requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Operazione non riuscita');
+      toast.success(action === 'approve' ? 'Richiesta approvata: email di reset inviata se l’account esiste' : 'Richiesta rifiutata');
+      await load();
+    } catch (e) {
+      toast.error(e.message || 'Errore');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Card className="metallic p-6 mb-8 border-orange-500/20">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 className="font-semibold flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-orange-400" />Richieste recupero password</h3>
+          <p className="text-xs text-neutral-500 mt-1">Richieste arrivate dal bot Telegram. Approvando, MotoDNA invia un link monouso all’email dell’account, valido 30 minuti.</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={load} disabled={loading}>Aggiorna</Button>
+      </div>
+      {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+      {loading ? (
+        <p className="text-sm text-neutral-500 py-5 text-center">Caricamento richieste…</p>
+      ) : requests.length === 0 ? (
+        <p className="text-sm text-neutral-500 py-5 text-center">Nessuna richiesta in attesa.</p>
+      ) : (
+        <div className="space-y-3">
+          {requests.map(r => (
+            <div key={r.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium break-all">{r.email}</div>
+                <div className="text-xs text-neutral-500 mt-1">Telegram chat: {r.chat_id}</div>
+                <div className="text-xs text-neutral-500">Ricevuta: {new Date(r.created_at).toLocaleString('it-IT')}</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button size="sm" className="bg-orange-600 hover:bg-orange-500" disabled={busyId !== null} onClick={() => decide(r.id, 'approve')}>
+                  {busyId === r.id ? 'Attendi…' : 'Approva'}
+                </Button>
+                <Button size="sm" variant="outline" className="text-red-400 border-red-500/30" disabled={busyId !== null} onClick={() => decide(r.id, 'reject')}>
+                  Rifiuta
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 
 function Stat({ icon: Icon, label, value, accent, pulse }) {
   return (
