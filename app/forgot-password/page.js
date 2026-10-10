@@ -1,39 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import Logo from '@/components/Logo';
+import { MessageCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-
-  async function submit(e) {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-    setError('');
-    try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Richiesta non riuscita.');
-      setMessage(data.message || 'Se l’indirizzo è associato a un account, riceverai un link via email.');
-    } catch (err) {
-      setError(err.message || 'Si è verificato un errore.');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+  const botUrl = botUsername ? `https://t.me/${botUsername.replace(/^@/, '')}` : null;
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center p-5">
@@ -42,15 +17,29 @@ export default function ForgotPasswordPage() {
           <Logo size={40} />
           <span className="font-bold text-lg">MotoDNA</span>
         </Link>
+        <div className="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center mb-5">
+          <MessageCircle className="w-6 h-6 text-sky-400" />
+        </div>
         <h1 className="text-2xl font-bold">Recupera la password</h1>
-        <p className="text-sm text-neutral-400 mt-2 mb-6">Inserisci l’email del tuo account. Se è registrato, ti invieremo un link valido 30 minuti.</p>
-        <form onSubmit={submit} className="space-y-4">
-          <div><Label>Email</Label><Input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></div>
-          {message && <p role="status" className="text-sm text-emerald-400">{message}</p>}
-          {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-          <Button type="submit" disabled={loading} className="w-full bg-orange-600 hover:bg-orange-500">{loading ? 'Invio in corso…' : 'Invia link di recupero'}</Button>
-        </form>
-        <p className="mt-6 text-sm text-center"><Link href="/" className="text-orange-400 hover:text-orange-300">Torna al login</Link></p>
+        <p className="text-sm text-neutral-400 mt-2 mb-5">
+          Il recupero avviene tramite il bot ufficiale MotoDNA su Telegram. La richiesta viene verificata da un amministratore e, se approvata, il link temporaneo viene inviato all’email associata all’account.
+        </p>
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 mb-5 flex gap-3">
+          <ShieldCheck className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-neutral-400">Per proteggere il tuo account, non inviamo mai il link di reimpostazione direttamente su Telegram.</p>
+        </div>
+        {botUrl ? (
+          <a href={botUrl} target="_blank" rel="noreferrer">
+            <Button className="w-full bg-sky-600 hover:bg-sky-500"><MessageCircle className="w-4 h-4 mr-2" />Apri il bot Telegram</Button>
+          </a>
+        ) : (
+          <p className="text-sm text-amber-300 border border-amber-500/20 bg-amber-500/5 rounded-lg p-3">
+            Il bot non è ancora collegato a questa pagina. Contatta l’amministratore MotoDNA per ricevere il link al bot.
+          </p>
+        )}
+        <p className="mt-6 text-sm text-center">
+          <Link href="/" className="text-orange-400 hover:text-orange-300 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" />Torna al login</Link>
+        </p>
       </Card>
     </main>
   );
