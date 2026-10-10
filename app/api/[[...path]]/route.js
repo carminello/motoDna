@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword, signToken, getUserFromRequest } from '@/l
 import { generatePublicId, generateTagUid, generatePublicToken, generateTransferCode } from '@/lib/publicId';
 import { seedDemoForUser } from '@/lib/seedDemo';
 import { isAllowed, getClientIp } from '@/lib/rateLimit';
+import { telegramApi } from '@/lib/telegram';
 
 export const runtime = 'nodejs';
 
@@ -146,44 +147,110 @@ async function handler(request, { params }) {
       });
     }
 
-    // ============== AUTH ==============
-
-    // ============== PASSWORD RESET (public) ==============
-    if (path === '/auth/forgot-password' && method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const email = String(body.email || '').trim().toLowerCase();
-      const genericMessage = 'Se l’indirizzo è associato a un account, riceverai un link per reimpostare la password.';
-      const ip = getClientIp(request);
-      const ipLimit = isAllowed(`forgot-password:ip:${ip}`, { max: 5, windowMs: 15 * 60_000 });
-      const emailLimit = isAllowed(`forgot-password:email:${email.slice(0, 254)}`, { max: 3, windowMs: 15 * 60_000 });
-      if (!ipLimit.allowed || !emailLimit.allowed) return json({ message: genericMessage }, 200);
-      if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ message: genericMessage }, 200);
-
-      const user = await db.collection('users').findOne({ email }, { projection: { id: 1, email: 1 } });
-      if (user) {
-        const rawToken = randomBytes(32).toString('hex');
-        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 30 * 60_000);
-        await db.collection('password_reset_tokens').deleteMany({ user_id: user.id });
-        await db.collection('password_reset_tokens').insertOne({ user_id: user.id, token_hash: tokenHash, created_at: now, expires_at: expiresAt, used_at: null });
-        const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '');
-        const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
-        try {
-          await sendGmail({
-            to: user.email,
-            subject: 'Reimposta la password di MotoDNA',
-            text: `Hai richiesto di reimpostare la password di MotoDNA. Apri questo link entro 30 minuti: ${resetUrl}\n\nSe non hai fatto tu la richiesta, ignora questa email.`,
-            html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#171717"><h2>Reimposta la password di MotoDNA</h2><p>Hai richiesto di reimpostare la password del tuo account.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px">Scegli una nuova password</a></p><p>Il link scade tra 30 minuti e può essere usato una sola volta.</p><p>Se non hai richiesto tu il recupero, ignora questa email.</p></div>`,
-          });
-        } catch (error) {
-          await db.collection('password_reset_tokens').deleteOne({ token_hash: tokenHash }).catch(() => {});
-          console.error('[MotoDNA/password-reset] Email send failed:', error?.message || 'unknown error');
-        }
+    // ============== TELEGRAM PASSWORD RECOVERY WEBHOOK (public, secret protected) ==============
+    if (path === '/telegram/webhook' && method === 'POST') {
+      const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+      if (!process.env.TELEGRAM_BOT_TOKEN || !expectedSecret) {
+        return json({ error: 'Webhook Telegram non configurato' }, 503);
       }
-      return json({ message: genericMessage }, 200);
+      const suppliedSecret = request.headers.get('x-telegram-bot-api-secret-token') || '';
+      if (suppliedSecret !== expectedSecret) return json({ error: 'Non autorizzato' }, 401);
+
+      const update = await request.json().catch(() => ({}));
+      const callback = update.callback_query;
+      if (callback) {
+        await telegramApi('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
+        const chat = callback.message?.chat;
+        if (callback.data === 'recover_password' && chat?.type === 'private') {
+          await db.collection('password_reset_sessions').updateOne(
+            { chat_id: String(chat.id) },
+            { $set: { chat_id: String(chat.id), telegram_user_id: String(callback.from?.id || chat.id), state: 'awaiting_email', updated_at: new Date() } },
+            { upsert: true },
+          );
+          await telegramApi('sendMessage', {
+            chat_id: chat.id,
+            text: 'Scrivi l’indirizzo email che usi per accedere a MotoDNA. Per sicurezza, il link di reimpostazione verrà inviato solo all’email registrata.',
+          });
+        }
+        return json({ ok: true });
+      }
+
+      const message = update.message;
+      const chat = message?.chat;
+      if (!message || chat?.type !== 'private' || typeof message.text !== 'string') return json({ ok: true });
+      const chatId = String(chat.id);
+      const messageText = message.text.trim();
+
+      if (/^\/start(?:@\w+)?(?:\s|$)/i.test(messageText)) {
+        await telegramApi('sendMessage', {
+          chat_id: chat.id,
+          text: 'Benvenuto nell’assistenza MotoDNA. Da qui puoi richiedere il recupero della password. La richiesta verrà verificata da un amministratore.',
+          reply_markup: { inline_keyboard: [[{ text: '🔐 Recupera password', callback_data: 'recover_password' }]] },
+        });
+        return json({ ok: true });
+      }
+
+      if (/^recupera password$/i.test(messageText)) {
+        await db.collection('password_reset_sessions').updateOne(
+          { chat_id: chatId },
+          { $set: { chat_id: chatId, telegram_user_id: String(message.from?.id || chatId), state: 'awaiting_email', updated_at: new Date() } },
+          { upsert: true },
+        );
+        await telegramApi('sendMessage', { chat_id: chat.id, text: 'Scrivi l’indirizzo email che usi per accedere a MotoDNA. Il link verrà inviato solo all’email registrata.' });
+        return json({ ok: true });
+      }
+
+      const session = await db.collection('password_reset_sessions').findOne({ chat_id: chatId, state: 'awaiting_email' });
+      if (!session) {
+        await telegramApi('sendMessage', {
+          chat_id: chat.id,
+          text: 'Per iniziare, premi il pulsante qui sotto.',
+          reply_markup: { inline_keyboard: [[{ text: '🔐 Recupera password', callback_data: 'recover_password' }]] },
+        });
+        return json({ ok: true });
+      }
+
+      const email = messageText.toLowerCase();
+      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        await telegramApi('sendMessage', { chat_id: chat.id, text: 'L’indirizzo non sembra valido. Riprova inserendo la tua email.' });
+        return json({ ok: true });
+      }
+
+      const now = new Date();
+      const recentRequests = await db.collection('password_reset_requests').countDocuments({
+        chat_id: chatId,
+        created_at: { $gte: new Date(now.getTime() - 15 * 60_000) },
+      });
+      if (recentRequests >= 3) {
+        await db.collection('password_reset_sessions').updateOne({ chat_id: chatId }, { $set: { state: 'idle', updated_at: now } });
+        await telegramApi('sendMessage', { chat_id: chat.id, text: 'Hai già inviato diverse richieste. Attendi 15 minuti prima di riprovare.' });
+        return json({ ok: true });
+      }
+
+      await db.collection('password_reset_requests').insertOne({
+        id: uuidv4(),
+        email,
+        chat_id: chatId,
+        telegram_user_id: String(message.from?.id || chatId),
+        status: 'PENDING',
+        created_at: now,
+        updated_at: now,
+      });
+      await db.collection('password_reset_sessions').updateOne(
+        { chat_id: chatId },
+        { $set: { state: 'idle', updated_at: now } },
+      );
+      await telegramApi('sendMessage', {
+        chat_id: chat.id,
+        text: 'Richiesta registrata. Un amministratore la verificherà. Se approvata, riceverai le istruzioni all’indirizzo email registrato nel tuo account MotoDNA.',
+      });
+      return json({ ok: true });
     }
 
+    // ============== AUTH ==============
+
+
+    // ============== PASSWORD RESET (public) ==============
     if (path === '/auth/reset-password' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const token = String(body.token || '');
@@ -623,6 +690,99 @@ async function handler(request, { params }) {
           files: filesRemoved,
         },
       });
+    }
+
+    // GET /api/admin/password-reset-requests — Telegram recovery queue.
+    if (p[0] === 'admin' && p[1] === 'password-reset-requests' && !p[2] && method === 'GET') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
+      const requests = await db.collection('password_reset_requests').find(
+        { status: 'PENDING' },
+        { projection: { _id: 0, id: 1, email: 1, chat_id: 1, created_at: 1, status: 1 } },
+      ).sort({ created_at: 1 }).limit(100).toArray();
+      return json({ requests });
+    }
+
+    if (p[0] === 'admin' && p[1] === 'password-reset-requests' && p[2] && method === 'POST') {
+      const denied = await requireAdmin();
+      if (denied) return denied;
+      const requestId = p[2];
+      const body = await request.json().catch(() => ({}));
+      const action = String(body.action || '').toLowerCase();
+      if (!['approve', 'reject'].includes(action)) return json({ error: 'Azione non valida' }, 400);
+
+      const recoveryRequest = await db.collection('password_reset_requests').findOne({ id: requestId, status: 'PENDING' });
+      if (!recoveryRequest) return json({ error: 'Richiesta non trovata o già gestita' }, 404);
+      const now = new Date();
+
+      if (action === 'reject') {
+        const changed = await db.collection('password_reset_requests').updateOne(
+          { id: requestId, status: 'PENDING' },
+          { $set: { status: 'REJECTED', decided_at: now, decided_by: userId, updated_at: now } },
+        );
+        if (!changed.modifiedCount) return json({ error: 'La richiesta è già stata gestita' }, 409);
+        await telegramApi('sendMessage', {
+          chat_id: recoveryRequest.chat_id,
+          text: 'La richiesta di recupero non è stata approvata. Se hai ancora bisogno di assistenza, contatta il supporto MotoDNA.',
+        }).catch(() => {});
+        return json({ ok: true, status: 'REJECTED' });
+      }
+
+      const claimed = await db.collection('password_reset_requests').updateOne(
+        { id: requestId, status: 'PENDING' },
+        { $set: { status: 'PROCESSING', decided_by: userId, updated_at: now } },
+      );
+      if (!claimed.modifiedCount) return json({ error: 'La richiesta è già stata presa in carico' }, 409);
+
+      const email = String(recoveryRequest.email || '').trim().toLowerCase();
+      const user = await db.collection('users').findOne({ email }, { projection: { id: 1, email: 1 } });
+      if (!user) {
+        await db.collection('password_reset_requests').updateOne(
+          { id: requestId, status: 'PROCESSING' },
+          { $set: { status: 'REJECTED', decided_at: new Date(), updated_at: new Date(), decision_reason: 'ACCOUNT_NOT_FOUND' } },
+        );
+        await telegramApi('sendMessage', {
+          chat_id: recoveryRequest.chat_id,
+          text: 'La richiesta è stata gestita. Se non ricevi un’email, verifica di aver usato l’indirizzo associato al tuo account MotoDNA.',
+        }).catch(() => {});
+        return json({ ok: true, status: 'REJECTED', message: 'Nessun account trovato per questa email; richiesta chiusa.' });
+      }
+
+      const rawToken = randomBytes(32).toString('hex');
+      const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 30 * 60_000);
+      await db.collection('password_reset_tokens').deleteMany({ user_id: user.id });
+      await db.collection('password_reset_tokens').insertOne({
+        user_id: user.id, token_hash: tokenHash, created_at: now, expires_at: expiresAt, used_at: null,
+      });
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '');
+      const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
+      try {
+        await sendGmail({
+          to: user.email,
+          subject: 'Reimposta la password di MotoDNA',
+          text: `Un amministratore ha approvato la tua richiesta di recupero password MotoDNA. Apri questo link entro 30 minuti: ${resetUrl}\n\nSe non hai richiesto tu il recupero, ignora questa email.`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#171717"><h2>Reimposta la password di MotoDNA</h2><p>La tua richiesta è stata approvata. Usa il pulsante qui sotto per scegliere una nuova password.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px">Scegli una nuova password</a></p><p>Il link scade tra 30 minuti e può essere usato una sola volta.</p><p>Se non hai richiesto tu il recupero, ignora questa email.</p></div>`,
+        });
+      } catch (error) {
+        await db.collection('password_reset_tokens').deleteOne({ token_hash: tokenHash }).catch(() => {});
+        await db.collection('password_reset_requests').updateOne(
+          { id: requestId, status: 'PROCESSING' },
+          { $set: { status: 'PENDING', updated_at: new Date() }, $unset: { decided_by: '' } },
+        );
+        console.error('[MotoDNA/password-reset] Approved-request email failed:', error?.message || 'unknown error');
+        return json({ error: 'Invio email non riuscito. La richiesta è rimasta in attesa, riprova.' }, 502);
+      }
+
+      await db.collection('password_reset_requests').updateOne(
+        { id: requestId, status: 'PROCESSING' },
+        { $set: { status: 'APPROVED', decided_at: new Date(), updated_at: new Date() } },
+      );
+      await telegramApi('sendMessage', {
+        chat_id: recoveryRequest.chat_id,
+        text: 'La richiesta è stata approvata. Controlla l’email registrata nel tuo account MotoDNA: il link scade tra 30 minuti. Per sicurezza, il link non viene inviato su Telegram.',
+      }).catch(() => {});
+      return json({ ok: true, status: 'APPROVED' });
     }
 
     // POST /api/admin/broadcast - send a message from admin to every user
