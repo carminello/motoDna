@@ -106,6 +106,7 @@ export default function Landing() {
                   <form onSubmit={submit} className="space-y-4 mt-4">
                     <div><Label>Email</Label><Input type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="tu@motodna.app" /></div>
                     <div><Label>Password</Label><Input type="password" required value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="••••••••" /></div>
+                    <div className="text-right -mt-2"><a href="/forgot-password" className="text-sm text-orange-400 hover:text-orange-300">Password dimenticata?</a></div>
                     <label className="flex items-center gap-2 text-sm text-neutral-300 select-none cursor-pointer">
                       <input type="checkbox" checked={form.remember} onChange={e => setForm({ ...form, remember: e.target.checked })} className="w-4 h-4 rounded border-white/20 bg-neutral-900 accent-orange-500" />
                       Ricorda credenziali (90 giorni)
