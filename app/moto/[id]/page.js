@@ -32,30 +32,35 @@ export default function MotoPage({ params }) {
   const router = useRouter();
   const [data, setData] = useState(null);
 
- const load = () => fetch(`/api/motorcycles/${id}?_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(d => {
-    if (d.error) { toast.error(d.error); router.push('/dashboard'); return; }
-    setData(d);
-  });
+   const load = () =>
+    fetch(`/api/motorcycles/${id}?_t=${Date.now()}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) {
+          toast.error(d.error);
+          router.push('/dashboard');
+          return;
+        }
+        setData(d);
+      });
 
-  useEffect(() => { 
-    load(); 
-    const onResume = () => { if (document.visibilityState === 'visible') load(); };
+  useEffect(() => {
+    load();
+
+    const onResume = () => {
+      if (document.visibilityState === 'visible') {
+        load();
+      }
+    };
+
     window.addEventListener('focus', onResume);
     document.addEventListener('visibilitychange', onResume);
+
     return () => {
       window.removeEventListener('focus', onResume);
       document.removeEventListener('visibilitychange', onResume);
     };
   }, [id]);
-  load(); 
-  const onResume = () => { if (document.visibilityState === 'visible') load(); };
-  window.addEventListener('focus', onResume);
-  document.addEventListener('visibilitychange', onResume);
-  return () => {
-    window.removeEventListener('focus', onResume);
-    document.removeEventListener('visibilitychange', onResume);
-  };
-}, [id]);
   if (!data) return <MotoDetailSkeleton />;
   const { moto, maintenance, timeline, modifications, gallery, documents, reminders, nfc, postits = [] } = data;
 
