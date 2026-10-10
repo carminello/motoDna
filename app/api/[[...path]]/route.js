@@ -260,7 +260,7 @@ async function handler(request, { params }) {
 
       const tokenHash = createHash('sha256').update(token).digest('hex');
       const now = new Date();
-      const resetRecord = await db.collection('password_reset_tokens').findOne({ token_hash: tokenHash, expires_at: { $gt: now }, used_at: null });
+      const resetRecord = await db.collection('password_reset_tokens').findOne({ token_hash: tokenHash, source: 'telegram_admin_approved', expires_at: { $gt: now }, used_at: null });
       if (!resetRecord) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
 
       const consumed = await db.collection('password_reset_tokens').updateOne(
@@ -753,7 +753,7 @@ async function handler(request, { params }) {
       const expiresAt = new Date(Date.now() + 30 * 60_000);
       await db.collection('password_reset_tokens').deleteMany({ user_id: user.id });
       await db.collection('password_reset_tokens').insertOne({
-        user_id: user.id, token_hash: tokenHash, created_at: now, expires_at: expiresAt, used_at: null,
+        user_id: user.id, token_hash: tokenHash, source: 'telegram_admin_approved', created_at: now, expires_at: expiresAt, used_at: null,
       });
       const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '');
       const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
