@@ -3,7 +3,7 @@ import { useEffect, useState, use } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Cpu, Wifi, Gauge, Calendar, Wrench, Sparkles, Image as ImgIcon, MapPin, Zap, ShieldCheck, ChevronRight, MessageSquare, Send } from 'lucide-react';
+import { Cpu, Wifi, Gauge, Calendar, Clock, Wrench, Sparkles, Image as ImgIcon, MapPin, Zap, ShieldCheck, ChevronRight, MessageSquare, Send } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -72,18 +72,18 @@ export default function PublicProfile({ params }) {
           )}
 
           <div className="relative h-full max-w-5xl mx-auto px-5 flex flex-col justify-end pb-10">
-            {/* Passport-style header */}
-            <div className="mb-6 flex items-center gap-3">
+            <div className="text-xs mono text-neutral-400 uppercase tracking-[0.3em]">{moto.brand}</div>
+            <h1 className="text-5xl md:text-7xl font-black tracking-tighter leading-none mt-1">{moto.model}</h1>
+            {moto.version && <div className="text-xl text-neutral-300 mt-2 font-light italic">{moto.version}</div>}
+
+            {/* Passport-style header / badges under bike name */}
+            <div className="mt-4 flex items-center gap-3">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur border border-orange-500/30">
                 <Wifi className="w-3 h-3 text-orange-400 animate-pulse" />
                 <span className="text-xs mono text-orange-400 uppercase tracking-widest">Live NFC Profile</span>
               </div>
               <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">🟢 ATTIVA</Badge>
             </div>
-
-            <div className="text-xs mono text-neutral-400 uppercase tracking-[0.3em]">{moto.brand}</div>
-            <h1 className="text-5xl md:text-7xl font-black tracking-tighter leading-none mt-1">{moto.model}</h1>
-            {moto.version && <div className="text-xl text-neutral-300 mt-2 font-light italic">{moto.version}</div>}
 
             <div className="mt-6 flex flex-wrap gap-3">
               <div className="px-4 py-2.5 metallic rounded-lg">
@@ -113,7 +113,7 @@ export default function PublicProfile({ params }) {
           <StatMini label="Scansioni NFC" value={scan_count?.toLocaleString('it-IT') || '0'} icon={Wifi} />
           <StatMini label="Interventi" value={maintenance.length} icon={Wrench} />
           <StatMini label="Modifiche" value={modifications.length} icon={Sparkles} />
-          <StatMini label="Eventi" value={timeline.length} icon={Calendar} />
+          <StatMini label="Eventi" value={timeline.length} icon={Clock} />
         </div>
       </section>
 
@@ -134,11 +134,11 @@ export default function PublicProfile({ params }) {
         )}
 
         <Tabs defaultValue="timeline" className="w-full">
-          <TabsList className="bg-neutral-900/50 border border-white/10 w-full overflow-x-auto">
-            <TabsTrigger value="timeline"><Calendar className="w-3 h-3 mr-1" />Timeline</TabsTrigger>
-            <TabsTrigger value="maintenance"><Wrench className="w-3 h-3 mr-1" />Manutenzione</TabsTrigger>
-            <TabsTrigger value="modifications"><Sparkles className="w-3 h-3 mr-1" />Modifiche</TabsTrigger>
-            <TabsTrigger value="gallery"><ImgIcon className="w-3 h-3 mr-1" />Galleria</TabsTrigger>
+          <TabsList className="grid grid-cols-4 gap-2 md:gap-3 bg-transparent h-auto p-0 w-full mb-6">
+            <TabBadge value="timeline" icon={Clock} label="Timeline" badge={timeline.length} />
+            <TabBadge value="maintenance" icon={Wrench} label="Manutenz." badge={maintenance.length} />
+            <TabBadge value="modifications" icon={Sparkles} label="Modifiche" badge={modifications.length} />
+            <TabBadge value="gallery" icon={ImgIcon} label="Galleria" badge={gallery.length} />
           </TabsList>
 
           <TabsContent value="timeline" className="mt-6">
@@ -239,6 +239,31 @@ export default function PublicProfile({ params }) {
         </div>
       </footer>
     </div>
+  );
+}
+
+function TabBadge({ value, icon: Icon, label, badge }) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="group relative flex flex-col items-center justify-center gap-1.5 h-auto p-3 rounded-xl border-2 border-white/10 bg-neutral-950 hover:border-orange-500/40 hover:bg-neutral-900 data-[state=active]:border-orange-500 data-[state=active]:bg-gradient-to-br data-[state=active]:from-orange-500/25 data-[state=active]:to-red-600/10 data-[state=active]:shadow-[0_0_20px_-4px_rgba(238,100,50,0.5)] transition-all overflow-hidden"
+    >
+      {/* Racing stripe */}
+      <span className="absolute inset-x-0 top-[42%] h-[3px] bg-white/5 group-data-[state=active]:bg-orange-500/60 pointer-events-none" />
+      {/* Motorsport dots */}
+      <span className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+        <span className="w-0.5 h-0.5 rounded-full bg-white/15 group-data-[state=active]:bg-orange-400" />
+      </span>
+      <Icon className="relative w-6 h-6 text-neutral-300 group-hover:text-white group-data-[state=active]:text-orange-400 transition" strokeWidth={1.6} />
+      <span className="relative text-[10px] font-mono uppercase tracking-wider leading-none text-neutral-500 group-hover:text-neutral-300 group-data-[state=active]:text-orange-400 transition">{label}</span>
+      {badge > 0 && (
+        <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+          {badge}
+        </span>
+      )}
+    </TabsTrigger>
   );
 }
 
