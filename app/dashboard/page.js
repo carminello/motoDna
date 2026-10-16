@@ -214,7 +214,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
               <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
-              <h2 className="text-xl font-bold tracking-tight text-white uppercase">Gli Stalli del Garage</h2>
+              <h2 className="text-xl font-bold tracking-tight text-white uppercase">Le Moto in Garage</h2>
             </div>
             <span className="text-xs text-neutral-500 mono">{data.motos.length} {data.motos.length === 1 ? 'veicolo' : 'veicoli'}</span>
           </div>
