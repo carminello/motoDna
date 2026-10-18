@@ -100,7 +100,10 @@ export default function NfcAssociator({ motorcycle, onAssociated }) {
           });
           setWrittenUrl(publicUrl);
         } catch (writeErr) {
-          console.warn('Avviso scrittura NDEF:', writeErr);
+          console.error('Errore scrittura NDEF:', writeErr);
+          setPhase('error');
+          setErrorMsg('Scrittura fisica sul tag NFC fallita. Assicurati che il tag non sia protetto o bloccato e riprova tenendolo fermo.');
+          return;
         }
 
         // 2. ASSOCIAZIONE AL DATABASE
