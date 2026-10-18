@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { createHash, randomBytes } from 'node:crypto';
-import { sendGmail } from '@/lib/gmail';
 import { v4 as uuidv4 } from 'uuid';
 import { ObjectId, GridFSBucket } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
@@ -31,6 +29,56 @@ async function ensureAdminFlag(db, userDoc) {
     { $set: { is_admin: true, admin_granted_at: new Date() } },
   );
   return { ...userDoc, is_admin: true };
+}
+
+// Sanitize regex special characters to prevent ReDoS attacks
+function escapeRegex(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Ensure external or internal URLs don't execute script schemes (prevent Stored XSS)
+function isSafeUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (trimmed.startsWith('/api/files/')) return true;
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  return false;
+}
+
+// Magic bytes validation for uploaded files
+function validateMagicBytes(buf, claimedType) {
+  if (!buf || buf.length < 4) return false;
+  // JPEG: FF D8 FF
+  if (claimedType === 'image/jpeg') {
+    return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+  }
+  // PNG: 89 50 4E 47
+  if (claimedType === 'image/png') {
+    return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+  }
+  // GIF: 47 49 46 38
+  if (claimedType === 'image/gif') {
+    return buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38;
+  }
+  // WebP: RIFF .... WEBP
+  if (claimedType === 'image/webp') {
+    if (buf.length < 12) return false;
+    const riff = buf.toString('ascii', 0, 4);
+    const webp = buf.toString('ascii', 8, 12);
+    return riff === 'RIFF' && webp === 'WEBP';
+  }
+  // PDF: %PDF (25 50 44 46)
+  if (claimedType === 'application/pdf') {
+    return buf.toString('ascii', 0, 4) === '%PDF';
+  }
+  // AVIF: ftypavif or ftypavis
+  if (claimedType === 'image/avif') {
+    if (buf.length < 12) return false;
+    const ftyp = buf.toString('ascii', 4, 12);
+    return ftyp.includes('avif') || ftyp.includes('avis');
+  }
+  return false;
 }
 
 // ---------- GridFS orphan cleanup helpers ----------
@@ -105,9 +153,9 @@ async function handler(request, { params }) {
     const db = await getDb();
 
     // ============== FILES ==============
-    // Public files (default): open access + long CDN cache.
+    // Public files: open access + long CDN cache.
     // Private files (metadata.visibility === 'private'): require auth
-    // AND caller must be the uploader (owner).
+    // AND caller must be the uploader, an admin, or the current owner of the motorcycle.
     if (p[0] === 'files' && p[1] && method === 'GET') {
       const idStr = p[1].split('.')[0]; // strip extension if any
       if (!ObjectId.isValid(idStr)) return new NextResponse('Not found', { status: 404 });
@@ -121,7 +169,38 @@ async function handler(request, { params }) {
       if (isPrivate) {
         const caller = await getUserFromRequest(request);
         if (!caller) return new NextResponse('Unauthorized', { status: 401 });
-        if (!meta.uploaded_by || caller.sub !== meta.uploaded_by) {
+        
+        let authorized = !!(meta.uploaded_by && caller.sub === meta.uploaded_by);
+        
+        // Allow admin
+        if (!authorized) {
+          const callerDoc = await db.collection('users').findOne({ id: caller.sub }, { projection: { is_admin: 1 } });
+          if (callerDoc?.is_admin) authorized = true;
+        }
+
+        // Allow current motorcycle owner or if item was marked public in collection
+        if (!authorized) {
+          const filePattern = `/api/files/${idStr}`;
+          const [docMatch, galMatch, motoMatch] = await Promise.all([
+            db.collection('documents').findOne({ file_url: { $regex: filePattern } }, { projection: { motorcycle_id: 1, is_public: 1 } }),
+            db.collection('gallery').findOne({ file_url: { $regex: filePattern } }, { projection: { motorcycle_id: 1, is_public: 1 } }),
+            db.collection('motorcycles').findOne({ main_photo: { $regex: filePattern } }, { projection: { id: 1, owner_id: 1 } }),
+          ]);
+
+          if (docMatch?.is_public || galMatch?.is_public) {
+            authorized = true;
+          } else {
+            const motoId = docMatch?.motorcycle_id || galMatch?.motorcycle_id || motoMatch?.id;
+            if (motoId) {
+              const moto = await db.collection('motorcycles').findOne({ id: motoId }, { projection: { owner_id: 1 } });
+              if (moto && moto.owner_id === caller.sub) {
+                authorized = true;
+              }
+            }
+          }
+        }
+
+        if (!authorized) {
           return new NextResponse('Forbidden', { status: 403 });
         }
       }
@@ -138,6 +217,7 @@ async function handler(request, { params }) {
         headers: {
           'Content-Type': file.contentType || 'application/octet-stream',
           'Content-Length': String(file.length),
+          'X-Content-Type-Options': 'nosniff',
           // Public files: aggressive CDN cache; private: no cache.
           'Cache-Control': isPrivate
             ? 'private, no-store'
@@ -147,87 +227,45 @@ async function handler(request, { params }) {
     }
 
     // ============== AUTH ==============
-
-    // ============== PASSWORD RESET (public) ==============
-    if (path === '/auth/forgot-password' && method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const email = String(body.email || '').trim().toLowerCase();
-      const genericMessage = 'Se l’indirizzo è associato a un account, riceverai un link per reimpostare la password.';
-      const ip = getClientIp(request);
-      const ipLimit = isAllowed(`forgot-password:ip:${ip}`, { max: 5, windowMs: 15 * 60_000 });
-      const emailLimit = isAllowed(`forgot-password:email:${email.slice(0, 254)}`, { max: 3, windowMs: 15 * 60_000 });
-      if (!ipLimit.allowed || !emailLimit.allowed) return json({ message: genericMessage }, 200);
-      if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ message: genericMessage }, 200);
-
-      const user = await db.collection('users').findOne({ email }, { projection: { id: 1, email: 1 } });
-      if (user) {
-        const rawToken = randomBytes(32).toString('hex');
-        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 30 * 60_000);
-        await db.collection('password_reset_tokens').deleteMany({ user_id: user.id });
-        await db.collection('password_reset_tokens').insertOne({ user_id: user.id, token_hash: tokenHash, created_at: now, expires_at: expiresAt, used_at: null });
-        const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '');
-        const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
-        try {
-          await sendGmail({
-            to: user.email,
-            subject: 'Reimposta la password di MotoDNA',
-            text: `Hai richiesto di reimpostare la password di MotoDNA. Apri questo link entro 30 minuti: ${resetUrl}\n\nSe non hai fatto tu la richiesta, ignora questa email.`,
-            html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#171717"><h2>Reimposta la password di MotoDNA</h2><p>Hai richiesto di reimpostare la password del tuo account.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px">Scegli una nuova password</a></p><p>Il link scade tra 30 minuti e può essere usato una sola volta.</p><p>Se non hai richiesto tu il recupero, ignora questa email.</p></div>`,
-          });
-        } catch (error) {
-          await db.collection('password_reset_tokens').deleteOne({ token_hash: tokenHash }).catch(() => {});
-          console.error('[MotoDNA/password-reset] Email send failed:', error?.message || 'unknown error');
-        }
-      }
-      return json({ message: genericMessage }, 200);
-    }
-
-    if (path === '/auth/reset-password' && method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const token = String(body.token || '');
-      const password = String(body.password || '');
-      if (!/^[a-f0-9]{64}$/i.test(token)) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
-      if (password.length < 8 || password.length > 128) return json({ error: 'La password deve contenere almeno 8 caratteri e non superare 128 caratteri.' }, 400);
-
-      const tokenHash = createHash('sha256').update(token).digest('hex');
-      const now = new Date();
-      const resetRecord = await db.collection('password_reset_tokens').findOne({ token_hash: tokenHash, expires_at: { $gt: now }, used_at: null });
-      if (!resetRecord) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
-
-      const consumed = await db.collection('password_reset_tokens').updateOne(
-        { _id: resetRecord._id, used_at: null, expires_at: { $gt: now } },
-        { $set: { used_at: now } },
-      );
-      if (consumed.modifiedCount !== 1) return json({ error: 'Link non valido o scaduto. Richiedi un nuovo link.' }, 400);
-
-      const result = await db.collection('users').updateOne(
-        { id: resetRecord.user_id },
-        { $set: { password_hash: await hashPassword(password), password_changed_at: now, updated_at: now } },
-      );
-      if (result.modifiedCount !== 1) return json({ error: 'Impossibile aggiornare la password. Richiedi un nuovo link.' }, 400);
-      await db.collection('password_reset_tokens').deleteMany({ user_id: resetRecord.user_id });
-      return json({ message: 'Password aggiornata. Ora puoi accedere con la nuova password.' });
-    }
-
     if (path === '/auth/register' && method === 'POST') {
-      const body = await request.json();
+      const ip = getClientIp(request);
+      const rlReg = isAllowed(`register:${ip}`, { max: 10, windowMs: 60 * 60 * 1000 });
+      if (!rlReg.allowed) {
+        return json({ error: 'Troppe registrazioni da questo indirizzo. Riprova più tardi.' }, 429);
+      }
+
+      const body = await request.json().catch(() => ({}));
       const { email, password, first_name, last_name, username } = body;
-      if (!email || !password) return json({ error: 'Email e password richiesti' }, 400);
-      const existing = await db.collection('users').findOne({ email: email.toLowerCase() });
+      const emailStr = String(email || '').trim().toLowerCase();
+      const pwStr = String(password || '');
+
+      if (!emailStr || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailStr) || emailStr.length > 120) {
+        return json({ error: 'Indirizzo email non valido' }, 400);
+      }
+      if (pwStr.length < 8) {
+        return json({ error: 'La password deve contenere almeno 8 caratteri' }, 400);
+      }
+      if (pwStr.length > 200) {
+        return json({ error: 'Password troppo lunga (max 200 caratteri)' }, 400);
+      }
+
+      const existing = await db.collection('users').findOne({ email: emailStr });
       if (existing) return json({ error: 'Email già registrata' }, 400);
+
       const id = uuidv4();
       const now = new Date();
-      const normalizedEmail = email.toLowerCase();
+      const cleanFirstName = String(first_name || '').trim().slice(0, 60);
+      const cleanLastName = String(last_name || '').trim().slice(0, 60);
+      const cleanUsername = String(username || emailStr.split('@')[0] || '').trim().slice(0, 40);
+
       const user = {
-        id, email: normalizedEmail,
-        password_hash: await hashPassword(password),
-        first_name: first_name || '', last_name: last_name || '',
-        username: username || email.split('@')[0],
+        id, email: emailStr,
+        password_hash: await hashPassword(pwStr),
+        first_name: cleanFirstName, last_name: cleanLastName,
+        username: cleanUsername,
         profile_photo: null, country: '', status: 'ACTIVE',
         // Auto-grant admin if the email is whitelisted via env.
-        is_admin: ADMIN_EMAILS.has(normalizedEmail),
+        is_admin: ADMIN_EMAILS.has(emailStr),
         created_at: now, updated_at: now,
       };
       if (user.is_admin) user.admin_granted_at = now;
@@ -240,11 +278,18 @@ async function handler(request, { params }) {
     }
 
     if (path === '/auth/login' && method === 'POST') {
-      const { email, password, remember } = await request.json();
-      // Rate limit: 5 attempts per 60s per (IP + email lowercased).
-      // This blocks both single-IP bursts and slow attackers pivoting emails.
+      const { email, password, remember } = await request.json().catch(() => ({}));
       const ip = getClientIp(request);
-      const key = `login:${ip}:${(email || '').toLowerCase()}`;
+      const emailStr = String(email || '').trim().toLowerCase();
+
+      // 1. IP-level burst rate limit (blocks password spraying across different emails)
+      const rlIp = isAllowed(`login_ip:${ip}`, { max: 20, windowMs: 60_000 });
+      if (!rlIp.allowed) {
+        return json({ error: `Troppi tentativi di accesso da questo IP. Riprova tra ${rlIp.retryAfterSec}s.` }, 429);
+      }
+
+      // 2. Targeted rate limit per (IP + email)
+      const key = `login:${ip}:${emailStr}`;
       const rl = isAllowed(key, { max: 5, windowMs: 60_000 });
       if (!rl.allowed) {
         return json(
@@ -252,9 +297,10 @@ async function handler(request, { params }) {
           429,
         );
       }
-      const user = await db.collection('users').findOne({ email: (email || '').toLowerCase() });
+
+      const user = await db.collection('users').findOne({ email: emailStr });
       if (!user) return json({ error: 'Credenziali non valide' }, 401);
-      const ok = await verifyPassword(password, user.password_hash);
+      const ok = await verifyPassword(String(password || ''), user.password_hash);
       if (!ok) return json({ error: 'Credenziali non valide' }, 401);
       // If the email is whitelisted as admin but the DB flag isn't set yet
       // (e.g. account created before ADMIN_EMAILS was configured), grant it now.
@@ -337,21 +383,43 @@ async function handler(request, { params }) {
     // ============== OWNERSHIP TRANSFER ==============
     // GET /api/transfer/:code -> preview (auth)
     if (p[0] === 'transfer' && p[1] && !p[2] && method === 'GET') {
-      const t = await db.collection('transfers').findOne({ code: p[1].toUpperCase(), status: 'PENDING' });
+      const ip = getClientIp(request);
+      const rl = isAllowed(`transfer_preview:${ip}`, { max: 15, windowMs: 60_000 });
+      if (!rl.allowed) return json({ error: `Troppi tentativi. Riprova tra ${rl.retryAfterSec}s.` }, 429);
+
+      const codeUpper = String(p[1] || '').trim().toUpperCase();
+      const t = await db.collection('transfers').findOne({ code: codeUpper, status: 'PENDING' });
       if (!t) return json({ error: 'Codice non valido o già utilizzato' }, 404);
       if (t.expires_at < new Date()) return json({ error: 'Codice scaduto' }, 410);
       const moto = await db.collection('motorcycles').findOne({ id: t.motorcycle_id }, { projection: { _id: 0, owner_id: 0 } });
+      if (moto) delete moto.plate;
       const fromUser = await db.collection('users').findOne({ id: t.from_user_id }, { projection: { username: 1, first_name: 1, _id: 0 } });
       return json({ transfer: { code: t.code, expires_at: t.expires_at, from: fromUser }, moto });
     }
 
     // POST /api/transfer/:code/accept (auth)
     if (p[0] === 'transfer' && p[1] && p[2] === 'accept' && method === 'POST') {
-      const t = await db.collection('transfers').findOne({ code: p[1].toUpperCase(), status: 'PENDING' });
-      if (!t) return json({ error: 'Codice non valido o già utilizzato' }, 404);
-      if (t.expires_at < new Date()) return json({ error: 'Codice scaduto' }, 410);
-      if (t.from_user_id === userId) return json({ error: 'Non puoi trasferire una moto a te stesso' }, 400);
+      const ip = getClientIp(request);
+      const rl = isAllowed(`transfer_accept:${ip}`, { max: 5, windowMs: 60_000 });
+      if (!rl.allowed) return json({ error: `Troppi tentativi. Riprova tra ${rl.retryAfterSec}s.` }, 429);
+
       const now = new Date();
+      const codeUpper = String(p[1] || '').trim().toUpperCase();
+
+      // Atomically claim the transfer
+      const tResult = await db.collection('transfers').findOneAndUpdate(
+        { code: codeUpper, status: 'PENDING', expires_at: { $gt: now } },
+        { $set: { status: 'COMPLETED', to_user_id: userId, completed_at: now } },
+        { returnDocument: 'before' }
+      );
+      const t = tResult?.value !== undefined ? tResult.value : tResult;
+      if (!t) return json({ error: 'Codice non valido, scaduto o già utilizzato' }, 404);
+      if (t.from_user_id === userId) {
+        // Rollback transfer status
+        await db.collection('transfers').updateOne({ _id: t._id }, { $set: { status: 'PENDING', to_user_id: null, completed_at: null } });
+        return json({ error: 'Non puoi trasferire una moto a te stesso' }, 400);
+      }
+
       // Close previous ownership record
       await db.collection('ownership_history').updateMany(
         { motorcycle_id: t.motorcycle_id, end_date: null },
@@ -364,8 +432,12 @@ async function handler(request, { params }) {
       });
       // Update motorcycle owner
       await db.collection('motorcycles').updateOne({ id: t.motorcycle_id }, { $set: { owner_id: userId, updated_at: now } });
-      // Mark transfer complete
-      await db.collection('transfers').updateOne({ _id: t._id }, { $set: { status: 'COMPLETED', to_user_id: userId, completed_at: now } });
+      // Reassign pending reminders to the new owner
+      await db.collection('reminders').updateMany(
+        { motorcycle_id: t.motorcycle_id, status: 'PENDING' },
+        { $set: { user_id: userId, updated_at: now } }
+      );
+
       const moto = await db.collection('motorcycles').findOne({ id: t.motorcycle_id }, { projection: { _id: 0 } });
       return json({ moto });
     }
@@ -430,6 +502,11 @@ async function handler(request, { params }) {
     // Accepts optional `visibility` = 'public' | 'private' (default: public).
     // Private files can only be downloaded by the uploader.
     if (path === '/uploads' && method === 'POST') {
+      const rlUpload = isAllowed(`upload:${userId}`, { max: 20, windowMs: 60_000 });
+      if (!rlUpload.allowed) {
+        return json({ error: `Troppi file caricati in breve tempo. Riprova tra ${rlUpload.retryAfterSec}s.` }, 429);
+      }
+
       const contentType = request.headers.get('content-type') || '';
       const MAX = 10 * 1024 * 1024;
       const ALLOWED = new Set(['image/jpeg','image/png','image/webp','image/avif','image/gif','application/pdf']);
@@ -457,6 +534,9 @@ async function handler(request, { params }) {
       if (!bytes.length) return json({ error: 'File vuoto' }, 400);
       if (bytes.length > MAX) return json({ error: 'File troppo grande (max 10MB)' }, 413);
       if (!ALLOWED.has(ctype)) return json({ error: 'Formato non supportato' }, 400);
+      if (!validateMagicBytes(bytes, ctype)) {
+        return json({ error: 'Firma file (magic bytes) non corrispondente al formato dichiarato' }, 400);
+      }
       const bucket = await getBucket();
       const id = new ObjectId();
       const safeName = String(originalName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -540,11 +620,12 @@ async function handler(request, { params }) {
       if (denied) return denied;
       const url = new URL(request.url);
       const q = (url.searchParams.get('q') || '').trim();
-      const filter = q ? { $or: [
-        { email: { $regex: q, $options: 'i' } },
-        { username: { $regex: q, $options: 'i' } },
-        { first_name: { $regex: q, $options: 'i' } },
-        { last_name: { $regex: q, $options: 'i' } },
+      const safeQ = escapeRegex(q);
+      const filter = safeQ ? { $or: [
+        { email: { $regex: safeQ, $options: 'i' } },
+        { username: { $regex: safeQ, $options: 'i' } },
+        { first_name: { $regex: safeQ, $options: 'i' } },
+        { last_name: { $regex: safeQ, $options: 'i' } },
       ] } : {};
       const users = await db.collection('users').find(filter, {
         projection: { _id: 0, id: 1, email: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, created_at: 1, last_seen: 1, is_admin: 1 }
@@ -648,7 +729,11 @@ async function handler(request, { params }) {
         read_at: null,
         broadcast: true,
       }));
-      await db.collection('messages').insertMany(docs);
+      // Insert in chunks of 500 to stay safely below MongoDB 16MB BSON command size
+      const chunkSize = 500;
+      for (let i = 0; i < docs.length; i += chunkSize) {
+        await db.collection('messages').insertMany(docs.slice(i, i + chunkSize));
+      }
       return json({ sent: docs.length });
     }
 
@@ -733,10 +818,11 @@ async function handler(request, { params }) {
     if (p[0] === 'community' && p[1] === 'users' && !p[2] && method === 'GET') {
       const url = new URL(request.url);
       const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-      const filter = q ? { $or: [
-        { username: { $regex: q, $options: 'i' } },
-        { first_name: { $regex: q, $options: 'i' } },
-        { last_name: { $regex: q, $options: 'i' } },
+      const safeQ = escapeRegex(q);
+      const filter = safeQ ? { $or: [
+        { username: { $regex: safeQ, $options: 'i' } },
+        { first_name: { $regex: safeQ, $options: 'i' } },
+        { last_name: { $regex: safeQ, $options: 'i' } },
       ] } : {};
       const users = await db.collection('users').find(filter, {
         projection: { _id: 0, id: 1, username: 1, first_name: 1, last_name: 1, profile_photo: 1, country: 1, created_at: 1 }
@@ -848,11 +934,14 @@ async function handler(request, { params }) {
 
     // POST /api/messages/:userId - send message
     if (p[0] === 'messages' && p[1] && method === 'POST') {
+      const rlMsg = isAllowed(`msg:${userId}`, { max: 30, windowMs: 60_000 });
+      if (!rlMsg.allowed) return json({ error: `Troppi messaggi inviati. Riprova tra ${rlMsg.retryAfterSec}s.` }, 429);
+
       const otherId = p[1];
       if (otherId === userId) return json({ error: 'Non puoi inviare a te stesso' }, 400);
       const other = await db.collection('users').findOne({ id: otherId });
       if (!other) return json({ error: 'Utente non trovato' }, 404);
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       const content = String(body.content || '').trim().slice(0, 2000);
       if (!content) return json({ error: 'Messaggio vuoto' }, 400);
       const msg = {
@@ -1069,8 +1158,8 @@ async function handler(request, { params }) {
         maintenance: () => Object.assign(doc, { user_id: userId, service_type: body.service_type || 'OTHER', title: body.title || '', description: body.description || '', date: body.date ? new Date(body.date) : now, mileage: parseInt(body.mileage) || 0, cost: parseFloat(body.cost) || 0, currency: body.currency || 'EUR', verified: false, is_public: body.is_public !== false }),
         timeline: () => Object.assign(doc, { created_by: userId, event_type: body.event_type || 'OTHER', title: body.title || '', description: body.description || '', event_date: body.event_date ? new Date(body.event_date) : now, mileage: parseInt(body.mileage) || 0, is_public: body.is_public !== false }),
         modifications: () => Object.assign(doc, { category: body.category || 'OTHER', name: body.name || '', brand: body.brand || '', model: body.model || '', description: body.description || '', installation_date: body.installation_date ? new Date(body.installation_date) : now, installation_mileage: parseInt(body.installation_mileage) || 0, cost: parseFloat(body.cost) || 0, is_public: body.is_public !== false }),
-        gallery: () => Object.assign(doc, { uploaded_by: userId, file_url: body.file_url || '', thumbnail_url: body.thumbnail_url || body.file_url || '', caption: body.caption || '', category: body.category || 'OTHER', is_cover: !!body.is_cover, is_public: body.is_public !== false }),
-        documents: () => Object.assign(doc, { uploaded_by: userId, file_url: body.file_url || '', document_type: body.document_type || 'OTHER', title: body.title || '', document_date: body.document_date ? new Date(body.document_date) : now, is_public: !!body.is_public }),
+        gallery: () => Object.assign(doc, { uploaded_by: userId, file_url: isSafeUrl(body.file_url) ? body.file_url : '', thumbnail_url: isSafeUrl(body.thumbnail_url) ? body.thumbnail_url : (isSafeUrl(body.file_url) ? body.file_url : ''), caption: body.caption || '', category: body.category || 'OTHER', is_cover: !!body.is_cover, is_public: body.is_public !== false }),
+        documents: () => Object.assign(doc, { uploaded_by: userId, file_url: isSafeUrl(body.file_url) ? body.file_url : '', document_type: body.document_type || 'OTHER', title: body.title || '', document_date: body.document_date ? new Date(body.document_date) : now, is_public: !!body.is_public }),
         reminders: () => Object.assign(doc, { user_id: userId, title: body.title || '', description: body.description || '', target_date: body.target_date ? new Date(body.target_date) : null, target_mileage: body.target_mileage ? parseInt(body.target_mileage) : null, repeat_interval_km: body.repeat_interval_km ? parseInt(body.repeat_interval_km) : null, repeat_interval_months: body.repeat_interval_months ? parseInt(body.repeat_interval_months) : null, status: 'PENDING' }),
       };
       if (!collections[kind]) return json({ error: 'Risorsa sconosciuta' }, 400);
@@ -1104,6 +1193,21 @@ async function handler(request, { params }) {
       if ('installation_date' in updates && updates.installation_date) updates.installation_date = new Date(updates.installation_date);
       if ('document_date' in updates && updates.document_date) updates.document_date = new Date(updates.document_date);
       if ('target_date' in updates && updates.target_date) updates.target_date = new Date(updates.target_date);
+
+      // Sync GridFS metadata visibility if a document's is_public flag is toggled
+      if (kind === 'documents' && 'is_public' in updates) {
+        const existingDoc = await db.collection('documents').findOne({ id: p[3], motorcycle_id: p[1] });
+        if (existingDoc?.file_url) {
+          const fid = fileIdFromUrl(existingDoc.file_url);
+          if (fid) {
+            await db.collection('uploads.files').updateOne(
+              { _id: fid },
+              { $set: { 'metadata.visibility': updates.is_public ? 'public' : 'private' } }
+            );
+          }
+        }
+      }
+
       await db.collection(kind).updateOne({ id: p[3], motorcycle_id: p[1] }, { $set: updates });
       const item = await db.collection(kind).findOne({ id: p[3] }, { projection: { _id: 0 } });
       return json({ item });
@@ -1115,6 +1219,19 @@ async function handler(request, { params }) {
       if (!valid.includes(kind)) return json({ error: 'Risorsa sconosciuta' }, 400);
       const moto = await db.collection('motorcycles').findOne({ id: p[1], owner_id: userId });
       if (!moto) return json({ error: 'Non autorizzato' }, 403);
+
+      // Clean up physical file in GridFS if deleting a gallery photo or document
+      if (kind === 'gallery' || kind === 'documents') {
+        const item = await db.collection(kind).findOne({ id: p[3], motorcycle_id: p[1] });
+        if (item?.file_url) {
+          const fid = fileIdFromUrl(item.file_url);
+          if (fid) {
+            const bucket = await getBucket();
+            await deleteGridFsFiles(bucket, [fid]);
+          }
+        }
+      }
+
       await db.collection(kind).deleteOne({ id: p[3], motorcycle_id: p[1] });
       return json({ ok: true });
     }
