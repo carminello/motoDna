@@ -106,7 +106,7 @@ export default function MotoPage({ params }) {
             <div className="text-xs mono text-neutral-500 uppercase">{moto.brand}</div>
             <div className="font-bold tracking-tight leading-none">{moto.model}</div>
           </div>
-          <a href={`/m/${moto.public_id}`} target="_blank" rel="noopener">
+          <a href={`/m/${moto.public_id}`} target="_blank" rel="noopener noreferrer">
             <Button size="sm" variant="outline" className="border-orange-500/40 text-orange-400 hover:bg-orange-500/10"><ExternalLink className="w-3 h-3 mr-1" /> Profilo pubblico</Button>
           </a>
         </div>
@@ -329,7 +329,7 @@ export default function MotoPage({ params }) {
                 <Card key={d.id} className="metallic p-3 flex items-center justify-between gap-3">
                   <div className="flex-1 flex items-center gap-2"><CategoryPill kind="document" value={d.document_type} /><span className="font-medium">{d.title}</span></div>
                   <div className="flex items-center gap-2">
-                    {d.file_url && <a href={d.file_url} target="_blank" rel="noopener" className="text-xs text-orange-400 hover:underline">Apri</a>}
+                    {d.file_url && <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-400 hover:underline">Apri</a>}
                     <span className="text-xs text-neutral-500 mono">{d.document_date ? new Date(d.document_date).toLocaleDateString('it-IT') : ''}</span>
                     <ItemActions isPublic={d.is_public} onToggle={(v) => patch('documents', d.id, { is_public: v })} onDelete={() => del('documents', d.id)} />
                   </div>
@@ -400,7 +400,7 @@ export default function MotoPage({ params }) {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-4">
-                    <a href={`/m/${moto.public_id}`} target="_blank" rel="noopener">
+                    <a href={`/m/${moto.public_id}`} target="_blank" rel="noopener noreferrer">
                       <Button variant="outline" className="w-full"><ExternalLink className="w-3 h-3 mr-1" />Testa NFC</Button>
                     </a>
                     <Button variant="outline" onClick={async () => {
