@@ -26,13 +26,22 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: "/api/(.*)",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: process.env.CORS_ORIGINS || "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, DELETE, PATCH, OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization, Cookie" },
+          { key: "Access-Control-Allow-Credentials", value: "true" },
+        ],
+      },
+      {
         source: "/(.*)",
         headers: [
-          { key: "X-Frame-Options", value: "ALLOWALL" },
-          { key: "Content-Security-Policy", value: "frame-ancestors *;" },
-          { key: "Access-Control-Allow-Origin", value: process.env.CORS_ORIGINS || "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, DELETE, OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "*" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self';" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
     ];
